@@ -27,14 +27,21 @@ export async function handleMessage(event) {
 
   // ── 1. Global kill switch ────────────────────────────────────────────────────
   const autoReplyEnabled = await getSettingCached('AUTO_REPLY_ENABLED', 'true');
-  if (autoReplyEnabled === 'false') return;
+  if (autoReplyEnabled === 'false') {
+    console.log(`⏸ [KILL SWITCH] Auto-reply disabled. Ignoring PSID: ${senderId}`);
+    return;
+  }
 
   // ── 2. Test mode — only allow specific PSIDs ─────────────────────────────────
   const testMode = await getSettingCached('TEST_MODE', 'false');
   if (testMode === 'true') {
     const testerPsidsVal = await getSettingCached('TESTER_PSIDS', '');
     const testerPsids = testerPsidsVal.split(',').map(id => id.trim()).filter(Boolean);
-    if (!testerPsids.includes(senderId)) return;
+    console.log(`🧪 [TEST MODE] Sender: ${senderId} | Allowed testers: [${testerPsids.join(', ')}] | Match: ${testerPsids.includes(senderId)}`);
+    if (!testerPsids.includes(senderId)) {
+      console.log(`⏸ [TEST MODE] Blocked non-tester PSID: ${senderId}`);
+      return;
+    }
   }
 
   const messageText = (event.message.text ?? '').trim();
@@ -86,9 +93,25 @@ export async function handleMessage(event) {
     }
 
     case 'COLLECT_PHONE': {
+      // Escape hatch: if customer sends cancel/reset keywords or a product query, break out
+      const cancelWords = ['না', 'cancel', 'বাদ', 'থাক', 'দরকার নেই', 'লাগবে না', 'আর না'];
+      const lowerMsg = messageText.toLowerCase();
+      if (cancelWords.some(w => lowerMsg.includes(w))) {
+        stateUpdate = { state: 'GREETING', pending_product_name: null, pending_product_price: null, pending_variant: null, order_name: null, order_address: null };
+        reply = 'ঠিক আছে, অর্ডার বাতিল করা হয়েছে। 🙏 অন্য কিছু দেখতে চাইলে বলুন!';
+        break;
+      }
+
+      // If customer types a product keyword while stuck, reset and let AI handle
+      if (isProductQuery(messageText)) {
+        stateUpdate = { state: 'GREETING', pending_product_name: null, pending_product_price: null, pending_variant: null, order_name: null, order_address: null };
+        needsAI = true;
+        break;
+      }
+
       const phone = extractOrderField('phone', messageText);
       if (!phone) {
-        reply = 'সঠিক মোবাইল নম্বর দিন (যেমন: ০১৭XXXXXXXX)।';
+        reply = 'মোবাইল নম্বরটি সঠিকভাবে লিখুন (যেমন: ০১৭XXXXXXXX)। অর্ডার বাতিল করতে "বাদ" লিখুন।';
         break;
       }
 

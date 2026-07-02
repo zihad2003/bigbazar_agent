@@ -100,16 +100,26 @@ export function isProductQuery(text) {
   return false;
 }
 
+// ── Bengali digit conversion ──────────────────────────────────────────────────
+const BANGLA_DIGITS = { '০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9' };
+
+function banglaToAscii(text) {
+  return text.replace(/[০-৯]/g, ch => BANGLA_DIGITS[ch] || ch);
+}
+
 // ── Field extraction ──────────────────────────────────────────────────────────
 
 /**
  * Extracts structured fields from free text.
  * Currently supports: phone
  * Bangladeshi mobile: 01[3-9]XXXXXXXX (11 digits)
+ * Accepts both Bengali (০১৭...) and ASCII (017...) digits.
  */
 export function extractOrderField(field, text) {
   if (field === 'phone') {
-    const cleaned = text.replace(/[\s\-().]/g, '');
+    // Convert Bengali digits → ASCII, then strip whitespace/dashes
+    const ascii = banglaToAscii(text);
+    const cleaned = ascii.replace(/[\s\-().]/g, '');
     const match = cleaned.match(/(?:\+88)?01[3-9]\d{8}/);
     return match ? match[0].replace('+88', '') : null;
   }
