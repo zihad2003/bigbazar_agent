@@ -21,10 +21,10 @@ const COLUMNS = {
   price:     'price',         // numeric, in BDT
   category:  'category',      // e.g. "saree", "kurti"
   imageUrl:  'image_url',
-  stock:     'stock_quantity',// integer; 0 = out of stock
-  colors:    'colors',        // text or JSON array
-  sizes:     'sizes',         // text or JSON array
-  badge:     'badge',         // e.g. "New", "Best Seller" (from admin panel)
+  stock:     'stock_count',   // integer; 0 = out of stock
+  colors:    'available_colors', // JSON array
+  sizes:     'available_sizes',  // JSON array
+  badge:     'status',        // status (e.g. published) as fallback for badge
   createdAt: 'created_at',
 };
 // ───────────────────────────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ export async function searchProductsByText(query, limit = 5) {
   const db = getTiDBPool();
   const like = `%${query}%`;
 
-  const [rows] = await db.execute(
+  const [rows] = await db.query(
     `SELECT ${COLUMNS.id} AS id, ${COLUMNS.name} AS name, ${COLUMNS.price} AS price,
             ${COLUMNS.category} AS category, ${COLUMNS.imageUrl} AS imageUrl,
             ${COLUMNS.stock} AS stock, ${COLUMNS.colors} AS colors, ${COLUMNS.sizes} AS sizes
@@ -71,7 +71,7 @@ export async function searchProductsByText(query, limit = 5) {
      WHERE ${COLUMNS.name} LIKE ? OR ${COLUMNS.category} LIKE ?
      ORDER BY ${COLUMNS.stock} DESC
      LIMIT ?`,
-    [like, like, limit]
+    [like, like, Number(limit)]
   );
 
   return rows;
@@ -97,13 +97,13 @@ export async function getProductById(id) {
  */
 export async function getCatalogSnapshot(limit = 80) {
   const db = getTiDBPool();
-  const [rows] = await db.execute(
+  const [rows] = await db.query(
     `SELECT ${COLUMNS.name} AS name, ${COLUMNS.price} AS price,
             ${COLUMNS.category} AS category, ${COLUMNS.stock} AS stock
      FROM ${TABLE}
      ORDER BY ${COLUMNS.createdAt} DESC
      LIMIT ?`,
-    [limit]
+    [Number(limit)]
   );
   return rows;
 }

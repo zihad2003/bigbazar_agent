@@ -73,6 +73,7 @@ src/
     tidb.js                            — TiDB connection + queries
 sql/
   schema.sql                           — Supabase tables (conversations, orders)
+  schema-products.sql                  — Reconstructed TiDB products catalog schema
 .env.example
 ```
 
