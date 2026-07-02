@@ -64,6 +64,24 @@ async function ensureSettingsTable() {
   tableChecked = true;
 }
 
+// Preload all settings on application startup to avoid any HTTP database requests for settings during message handling
+export async function preloadSettings() {
+  try {
+    await ensureSettingsTable();
+    const result = await executeQuery('SELECT key, value FROM settings');
+    const rows = result?.results || [];
+    for (const row of rows) {
+      settingsCache[row.key] = row.value;
+    }
+    console.log('✅ Settings preloaded from D1:', Object.keys(settingsCache));
+  } catch (err) {
+    console.error('⚠️ Failed to preload settings from D1:', err);
+  }
+}
+
+// Fire off preloading in background immediately on import
+preloadSettings().catch(() => {});
+
 export async function getSettingCached(key, defaultValue) {
   if (settingsCache[key] !== undefined) {
     return settingsCache[key];

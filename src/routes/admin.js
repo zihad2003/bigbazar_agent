@@ -9,14 +9,23 @@
  */
 
 import { Router } from 'express';
+import crypto from 'crypto';
 import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached } from '../services/d1.js';
 
 export const adminRouter = Router();
 
-// Simple bearer token guard — replace with proper auth for production
+// Timing-safe bearer token guard to prevent timing attacks
 adminRouter.use((req, res, next) => {
   const token = req.headers['x-admin-token'];
-  if (token !== process.env.ADMIN_SECRET) return res.sendStatus(401);
+  
+  if (!token || !process.env.ADMIN_SECRET) {
+    return res.sendStatus(401);
+  }
+
+  const match = token.length === process.env.ADMIN_SECRET.length &&
+    crypto.timingSafeEqual(Buffer.from(token), Buffer.from(process.env.ADMIN_SECRET));
+
+  if (!match) return res.sendStatus(401);
   next();
 });
 
