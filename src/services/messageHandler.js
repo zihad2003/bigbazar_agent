@@ -29,6 +29,22 @@ export async function handleMessage(event) {
   if (event.message.is_echo) return;
 
   const senderId = event.sender.id;
+
+  // ── 1. Check if auto-reply is globally disabled ──────────────────────────────
+  if (process.env.AUTO_REPLY_ENABLED === 'false') {
+    console.log(`ℹ️ Auto-reply is globally disabled — skipping bot response.`);
+    return;
+  }
+
+  // ── 2. Check if Test Mode is enabled (only allow specified tester PSIDs) ──────
+  if (process.env.TEST_MODE === 'true') {
+    const testerPsids = (process.env.TESTER_PSIDS || '').split(',').map(id => id.trim());
+    if (!testerPsids.includes(senderId)) {
+      console.log(`ℹ️ [TEST_MODE] Ignoring message from non-tester PSID: ${senderId}`);
+      return;
+    }
+  }
+
   const messageText = event.message.text ?? '';
   const attachments = event.message.attachments ?? [];
 
@@ -95,7 +111,7 @@ export async function handleMessage(event) {
 
       const total = (conversation.pending_product_price ?? 0) + 80;
       reply =
-`✅ *অর্ডার কনফার্ম হয়েছে!* 🎉
+        `✅ *অর্ডার কনফার্ম হয়েছে!* 🎉
 
 👤 নাম: ${conversation.order_name}
 📦 প্রোডাক্ট: ${conversation.pending_product_name}${conversation.pending_variant ? ` (${conversation.pending_variant})` : ''}
@@ -106,7 +122,7 @@ export async function handleMessage(event) {
 💵 *মোট: ${total} টাকা*
 
 ──────────────────
-বিকাশ / নগদ (পার্সোনাল): *${process.env.BKASH_NUMBER}*
+বিকাশ (পার্সোনাল): *${process.env.BKASH_NUMBER}*
 পেমেন্ট করার পর অনুগ্রহ করে "paid" বা "পেইড" লিখে জানাবেন! 🙏
 
 আগামী ২-৩ কর্মদিবসের মধ্যে ডেলিভারি পেয়ে যাবেন। বিগ বাজারের সাথে থাকার জন্য ধন্যবাদ! 🛍️`;
