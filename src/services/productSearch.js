@@ -1,40 +1,44 @@
 /**
  * Product Search Service
- * Wraps TiDB queries and combines text + image-derived search terms.
+ *
+ * Changes from v1:
+ *  - Removed getCatalogSnapshot(80) fallback for images.
+ *    Dumping 80 products into the prompt was expensive and unhelpful —
+ *    the AI couldn't reliably match an image against 80 text entries anyway.
+ *    Instead, if no text match + image: return empty and let the AI ask
+ *    "কী ধরনের পণ্য খুঁজছেন?" — that's the right UX.
+ *
+ *  - This function is only called when isProductQuery() returns true
+ *    (controlled by messageHandler), so it will rarely return empty.
  */
 
-import { searchProductsByText, getCatalogSnapshot } from '../db/tidb.js';
+import { searchProductsByText } from '../db/tidb.js';
 
 /**
- * Given a customer's message text and/or an image URL, return the most
- * relevant products to ground the AI's reply.
- *
- * Image handling: Claude's vision describes the product (color, type,
- * pattern) as part of getAIReply() — that description is then used here
- * as the search query. See messageHandler.js for the call order.
+ * @param {string} messageText
+ * @param {string|undefined} imageUrl
+ * @returns {Promise<Array>}
  */
 export async function searchProducts(messageText, imageUrl) {
-  let results = [];
-
+  // If there's text, search by text first
   if (messageText?.trim()) {
-    // Strip common filler words so "price koto ei saree ta" → "saree"
-    const cleaned = messageText
-      .replace(/\b(price|koto|dam|ki|ta|er|ei|the|what|is)\b/gi, '')
-      .trim();
+    // Strip filler words so "এই শাড়িটার দাম কত" → "শাড়ি"
+    const fillerWords = /\b(price|koto|dam|ki|ta|er|ei|the|what|is|কত|আছে|দাম|এই|টার|কি|কী|আপু|ভাইয়া)\b/gi;
+    const cleaned = messageText.replace(fillerWords, '').trim();
 
-    results = await searchProductsByText(cleaned || messageText, 6);
+    const query = cleaned.length >= 2 ? cleaned : messageText;
+    const results = await searchProductsByText(query, 6);
 
-    // Fallback: if nothing matched the cleaned query, try the raw message
+    // If cleaned query returned nothing, try full original text
     if (results.length === 0 && cleaned !== messageText) {
-      results = await searchProductsByText(messageText, 6);
+      return searchProductsByText(messageText, 6);
     }
+
+    return results;
   }
 
-  // If we have an image and no text search results, return a larger catalog snapshot
-  // so the vision model can match the image against the actual products in the prompt context.
-  if (results.length === 0 && imageUrl) {
-    return getCatalogSnapshot(80);
-  }
-
-  return results;
+  // Image only, no text — return empty.
+  // messageHandler/AI will ask "কী ধরনের পণ্য খুঁজছেন?"
+  // This avoids dumping 80 products into the AI prompt unnecessarily.
+  return [];
 }

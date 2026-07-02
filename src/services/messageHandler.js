@@ -1,16 +1,12 @@
 /**
  * Message Handler — Conversation State Machine
  *
- * States:
- *   GREETING              → first contact / unknown
- *   PRODUCT_SEARCH        → identifying what customer wants
- *   AWAITING_CONFIRMATION → shown price, waiting for "haa/yes/nibo"
- *   COLLECT_NAME          → collecting customer full name
- *   COLLECT_ADDRESS       → collecting delivery address
- *   COLLECT_PHONE         → collecting phone number
- *   COLLECT_VARIANT       → collecting size/color if needed
- *   ORDER_CONFIRM         → order summary sent, awaiting payment
- *   HANDOFF               → paused, human moderator active
+ * Key changes from v1:
+ *  - DB (TiDB product search) is only called when message is product-related
+ *  - All states explicitly handled — no unintentional fallthrough to AI
+ *  - ORDER_CONFIRM / PAID state added
+ *  - GREETING state handled without any DB call
+ *  - Response length enforced via prompt (see utils/prompts.js)
  */
 
 import { getOrCreateConversation, updateConversation, getSettingCached } from './d1.js';
@@ -19,83 +15,83 @@ import { searchProducts } from './productSearch.js';
 import { saveOrder } from './orderService.js';
 import { sendMessage, sendTypingIndicator } from './messenger.js';
 import { notifyModerator } from './notifier.js';
-import { detectHandoffIntent, extractOrderField } from '../utils/nlp.js';
+import { detectHandoffIntent, extractOrderField, isProductQuery } from '../utils/nlp.js';
 import { buildSystemPrompt } from '../utils/prompts.js';
 
 export async function handleMessage(event) {
-  // Ignore delivery/read receipts
+  // Ignore delivery/read receipts and echo messages
   if (!event.message) return;
-  // Ignore bot's own echo messages
   if (event.message.is_echo) return;
 
   const senderId = event.sender.id;
 
-  // ── 1. Check if auto-reply is globally disabled ──────────────────────────────
+  // ── 1. Global kill switch ────────────────────────────────────────────────────
   const autoReplyEnabled = await getSettingCached('AUTO_REPLY_ENABLED', 'true');
-  if (autoReplyEnabled === 'false') {
-    console.log(`ℹ️ Auto-reply is globally disabled — skipping bot response.`);
-    return;
-  }
+  if (autoReplyEnabled === 'false') return;
 
-  // ── 2. Check if Test Mode is enabled (only allow specified tester PSIDs) ──────
+  // ── 2. Test mode — only allow specific PSIDs ─────────────────────────────────
   const testMode = await getSettingCached('TEST_MODE', 'false');
   if (testMode === 'true') {
     const testerPsidsVal = await getSettingCached('TESTER_PSIDS', '');
-    const testerPsids = testerPsidsVal.split(',').map(id => id.trim());
-    if (!testerPsids.includes(senderId)) {
-      console.log(`ℹ️ [TEST_MODE] Ignoring message from non-tester PSID: ${senderId}`);
-      return;
-    }
+    const testerPsids = testerPsidsVal.split(',').map(id => id.trim()).filter(Boolean);
+    if (!testerPsids.includes(senderId)) return;
   }
 
-  const messageText = event.message.text ?? '';
+  const messageText = (event.message.text ?? '').trim();
   const attachments = event.message.attachments ?? [];
+  const imageUrl = attachments.find(a => a.type === 'image')?.payload?.url;
 
-  // ── Load or create conversation state ────────────────────────────────────────
+  // ── 3. Load conversation state ───────────────────────────────────────────────
   const conversation = await getOrCreateConversation(senderId);
 
-  // ── If paused, human moderator is active — do nothing ────────────────────────
-  if (conversation.paused_by_ai) {
-    console.log(`⏸  Conversation ${senderId} is paused — skipping AI reply`);
-    return;
-  }
+  // ── 4. Human moderator active — do nothing ───────────────────────────────────
+  if (conversation.paused_by_ai) return;
 
-  // ── Detect if customer wants a human ─────────────────────────────────────────
+  // ── 5. Handoff detection (fast, no AI needed) ────────────────────────────────
   if (detectHandoffIntent(messageText)) {
     await triggerHandoff(senderId, conversation, 'Customer requested human agent');
     return;
   }
 
-  // ── Show typing indicator ─────────────────────────────────────────────────────
+  // ── 6. State machine ─────────────────────────────────────────────────────────
   await sendTypingIndicator(senderId, true);
 
-  // ── State machine ─────────────────────────────────────────────────────────────
   let reply;
   let stateUpdate = {};
+  let needsAI = false;
 
   switch (conversation.state) {
 
+    // ── Structured data collection states — no AI, no DB needed ──────────────
+
     case 'COLLECT_NAME': {
-      const name = messageText.trim();
+      const name = messageText;
+      if (!name || name.length < 2) {
+        reply = 'আপনার পুরো নামটা লিখুন।';
+        break;
+      }
       stateUpdate = { state: 'COLLECT_ADDRESS', order_name: name };
-      reply = `ধন্যবাদ, ${name}! 😊\n\nঅনুগ্রহ করে আপনার ডেলিভারি অ্যাড্রেসটি (গ্রাম/মহল্লা, থানা, জেলা) লিখে দিন।`;
+      reply = `ধন্যবাদ ${name}! এবার ডেলিভারি ঠিকানা দিন (গ্রাম/মহল্লা, থানা, জেলা)।`;
       break;
     }
 
     case 'COLLECT_ADDRESS': {
-      stateUpdate = { state: 'COLLECT_PHONE', order_address: messageText.trim() };
-      reply = `ধন্যবাদ! ✅\n\nএবার আপনার সচল মোবাইল নম্বরটি দিন।`;
+      if (!messageText || messageText.length < 5) {
+        reply = 'সম্পূর্ণ ঠিকানা লিখুন (গ্রাম, থানা, জেলা)।';
+        break;
+      }
+      stateUpdate = { state: 'COLLECT_PHONE', order_address: messageText };
+      reply = 'ধন্যবাদ! এবার সচল মোবাইল নম্বর দিন।';
       break;
     }
 
     case 'COLLECT_PHONE': {
       const phone = extractOrderField('phone', messageText);
       if (!phone) {
-        reply = `অনুগ্রহ করে একটি সঠিক মোবাইল নম্বর দিন (যেমন: ০১৭XXXXXXXX)`;
+        reply = 'সঠিক মোবাইল নম্বর দিন (যেমন: ০১৭XXXXXXXX)।';
         break;
       }
 
-      // Save the complete order
       const order = await saveOrder({
         sender_id: senderId,
         name: conversation.order_name,
@@ -114,72 +110,114 @@ export async function handleMessage(event) {
 
       const total = (conversation.pending_product_price ?? 0) + 80;
       reply =
-        `✅ *অর্ডার কনফার্ম হয়েছে!* 🎉
-
-👤 নাম: ${conversation.order_name}
-📦 প্রোডাক্ট: ${conversation.pending_product_name}${conversation.pending_variant ? ` (${conversation.pending_variant})` : ''}
-📍 ঠিকানা: ${conversation.order_address}
-📞 মোবাইল: ${phone}
-💰 মূল্য: ${conversation.pending_product_price} টাকা
-🚚 ডেলিভারি চার্জ: ৮০ টাকা
-💵 *মোট: ${total} টাকা*
-
-──────────────────
-বিকাশ (পার্সোনাল): *${process.env.BKASH_NUMBER}*
-পেমেন্ট করার পর অনুগ্রহ করে "paid" বা "পেইড" লিখে জানাবেন! 🙏
-
-আগামী ২-৩ কর্মদিবসের মধ্যে ডেলিভারি পেয়ে যাবেন। বিগ বাজারের সাথে থাকার জন্য ধন্যবাদ! 🛍️`;
+        `✅ অর্ডার কনফার্ম!\n\n` +
+        `👤 ${conversation.order_name}\n` +
+        `📦 ${conversation.pending_product_name}${conversation.pending_variant ? ` (${conversation.pending_variant})` : ''}\n` +
+        `📍 ${conversation.order_address}\n` +
+        `📞 ${phone}\n` +
+        `💰 পণ্য: ${conversation.pending_product_price} টাকা + ডেলিভারি: ৮০ টাকা = মোট ${total} টাকা\n\n` +
+        `বিকাশ (পার্সোনাল): *${process.env.BKASH_NUMBER}*\n` +
+        `পেমেন্ট করে "paid" লিখে জানান। ২-৩ কর্মদিবসে ডেলিভারি। 🛍️`;
 
       await notifyModerator({
         type: 'NEW_ORDER',
-        order: { id: order.id, name: conversation.order_name, product: conversation.pending_product_name, total },
+        order: {
+          id: order.id,
+          name: conversation.order_name,
+          product: conversation.pending_product_name,
+          total,
+        },
         senderId,
       });
       break;
     }
 
-    default: {
-      // ── For all other states, call the AI ──────────────────────────────────
-      const imageUrl = attachments.find(a => a.type === 'image')?.payload?.url;
+    case 'ORDER_CONFIRM': {
+      // Customer said "paid" / "পেইড" / "payment করেছি"
+      const lowerText = messageText.toLowerCase();
+      const paidKeywords = ['paid', 'পেইড', 'pay', 'পেমেন্ট', 'bkash', 'বিকাশ', 'send', 'পাঠিয়েছি'];
+      const isPaid = paidKeywords.some(kw => lowerText.includes(kw));
 
-      // Search products if there's a product query
-      const products = await searchProducts(messageText, imageUrl);
-
-      // Build context for the AI
-      const context = {
-        state: conversation.state,
-        history: conversation.message_history ?? [],
-        products,
-        imageUrl,
-        pendingProduct: conversation.pending_product_name,
-      };
-
-      const systemPrompt = buildSystemPrompt(context);
-      const aiResult = await getAIReply(systemPrompt, messageText, imageUrl, conversation.message_history ?? []);
-
-      reply = aiResult.text;
-
-      // Parse AI intent flags
-      if (aiResult.intent === 'PRODUCT_FOUND') {
-        stateUpdate = {
-          state: 'AWAITING_CONFIRMATION',
-          pending_product_name: aiResult.productName,
-          pending_product_price: aiResult.productPrice,
-          pending_variant: aiResult.variant,
-        };
-      } else if (aiResult.intent === 'START_ORDER') {
-        stateUpdate = { state: 'COLLECT_NAME' };
-      } else if (aiResult.intent === 'HANDOFF') {
-        await triggerHandoff(senderId, conversation, 'AI could not resolve query');
-        return;
+      if (isPaid) {
+        stateUpdate = { state: 'GREETING' }; // reset after payment confirmed
+        reply = 'ধন্যবাদ! 🙏 পেমেন্ট কনফার্ম হলেই শিপমেন্ট শুরু হবে।';
+        await notifyModerator({
+          type: 'PAYMENT_CLAIMED',
+          senderId,
+          lastMessage: messageText,
+        });
+        break;
       }
+
+      // Not payment-related — let AI handle (e.g. asking about another product)
+      needsAI = true;
+      break;
+    }
+
+    case 'HANDOFF': {
+      // Human moderator should be active — this is a safety fallthrough
+      // Don't respond, moderator will handle it
+      await sendTypingIndicator(senderId, false);
+      return;
+    }
+
+    default: {
+      // GREETING, PRODUCT_SEARCH, AWAITING_CONFIRMATION, and any unknown state
+      needsAI = true;
+      break;
     }
   }
 
-  // ── Persist state changes + append to history ─────────────────────────────
+  // ── 7. AI path — only runs when needsAI = true ───────────────────────────────
+  if (needsAI) {
+    // Only query DB if the message seems product-related OR there's an image
+    // This avoids querying TiDB for greetings, thanks, and other non-product messages
+    let products = [];
+    if (imageUrl || isProductQuery(messageText)) {
+      products = await searchProducts(messageText, imageUrl);
+    }
+
+    const context = {
+      state: conversation.state,
+      history: conversation.message_history ?? [],
+      products,
+      imageUrl,
+      pendingProduct: conversation.pending_product_name,
+    };
+
+    const systemPrompt = buildSystemPrompt(context);
+    const aiResult = await getAIReply(
+      systemPrompt,
+      messageText,
+      imageUrl,
+      conversation.message_history ?? []
+    );
+
+    reply = aiResult.text;
+
+    // Act on AI intent flags
+    if (aiResult.intent === 'PRODUCT_FOUND' && aiResult.productName) {
+      stateUpdate = {
+        state: 'AWAITING_CONFIRMATION',
+        pending_product_name: aiResult.productName,
+        pending_product_price: aiResult.productPrice ?? null,
+        pending_variant: aiResult.variant ?? null,
+      };
+    } else if (aiResult.intent === 'START_ORDER') {
+      stateUpdate = { state: 'COLLECT_NAME' };
+    } else if (aiResult.intent === 'HANDOFF') {
+      await triggerHandoff(senderId, conversation, 'AI could not resolve query');
+      return;
+    }
+  }
+
+  // ── 8. Persist state + history ───────────────────────────────────────────────
+  // Only store if there's actual text (avoid storing empty for image-only or receipt events)
+  const userEntry = messageText || (imageUrl ? '[ছবি পাঠিয়েছে]' : null);
+
   const newHistory = [
-    ...(conversation.message_history ?? []).slice(-10), // keep last 10 turns
-    { role: 'user', content: messageText, ts: Date.now() },
+    ...(conversation.message_history ?? []).slice(-8), // keep last 8 turns
+    ...(userEntry ? [{ role: 'user', content: userEntry, ts: Date.now() }] : []),
     { role: 'assistant', content: reply, ts: Date.now() },
   ];
 
@@ -189,7 +227,7 @@ export async function handleMessage(event) {
     updated_at: new Date().toISOString(),
   });
 
-  // ── Send reply ────────────────────────────────────────────────────────────
+  // ── 9. Send reply ────────────────────────────────────────────────────────────
   await sendTypingIndicator(senderId, false);
   await sendMessage(senderId, reply);
 }
@@ -203,7 +241,7 @@ async function triggerHandoff(senderId, conversation, reason) {
 
   await sendMessage(
     senderId,
-    'জি, অনুগ্রহ করে একটু অপেক্ষা করুন! 🙏\n\nআমাদের কাস্টমার কেয়ার টিম থেকে একজন খুব শীঘ্রই আপনার সাথে যোগাযোগ করবেন। আমাদের সাথে থাকার জন্য ধন্যবাদ! 😊'
+    'একটু অপেক্ষা করুন। 🙏 আমাদের টিম এখনই আপনার সাথে যোগাযোগ করবে।'
   );
 
   await notifyModerator({
@@ -212,6 +250,4 @@ async function triggerHandoff(senderId, conversation, reason) {
     senderId,
     lastMessage: conversation.message_history?.slice(-1)?.[0]?.content ?? '',
   });
-
-  console.log(`🤝 Handoff triggered for ${senderId}: ${reason}`);
 }
