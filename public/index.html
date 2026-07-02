@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Big Bazar Agent — Control Panel</title>
+  <!-- Google Fonts: Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg-color: #090d16;
+      --panel-bg: rgba(17, 24, 39, 0.65);
+      --panel-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      
+      --primary: #8b5cf6;
+      --primary-glow: rgba(139, 92, 246, 0.4);
+      --secondary: #06b6d4;
+      --secondary-glow: rgba(6, 182, 212, 0.4);
+      
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      min-height: 100vh;
+      overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 10% 20%, rgba(139, 92, 246, 0.12) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.1) 0%, transparent 40%);
+      background-attachment: fixed;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 24px 6%;
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--panel-border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(9, 13, 22, 0.7);
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-glow {
+      width: 16px;
+      height: 16px;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      border-radius: 50%;
+      box-shadow: 0 0 12px var(--primary-glow);
+      animation: pulse 2s infinite alternate;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.9); box-shadow: 0 0 8px var(--primary-glow); }
+      100% { transform: scale(1.1); box-shadow: 0 0 16px var(--secondary-glow); }
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #fff 40%, var(--text-muted));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .btn {
+      background: linear-gradient(135deg, var(--primary), #7c3aed);
+      color: #fff;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px var(--primary-glow);
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px var(--primary-glow);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--panel-border);
+      box-shadow: none;
+      color: var(--text-main);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      box-shadow: none;
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, var(--danger), #dc2626);
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-danger:hover {
+      box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 40px auto;
+      padding: 0 24px;
+      display: grid;
+      grid-template-columns: 350px 1fr;
+      gap: 30px;
+    }
+
+    @media (max-width: 1024px) {
+      .container {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: var(--panel-bg);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--panel-border);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+
+    .panel-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #fff;
+    }
+
+    /* Form Styles */
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+
+    .form-input {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 12px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 14px;
+      transition: all 0.2s ease;
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 8px rgba(139, 92, 246, 0.25);
+    }
+
+    /* Switch Toggles */
+    .toggle-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.02);
+      padding: 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.03);
+      margin-bottom: 16px;
+    }
+
+    .toggle-info h4 {
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 2px;
+    }
+
+    .toggle-info p {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 48px;
+      height: 26px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(255, 255, 255, 0.1);
+      transition: .3s;
+      border-radius: 34px;
+      border: 1px solid var(--panel-border);
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: #fff;
+      transition: .3s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: var(--primary);
+      box-shadow: 0 0 10px rgba(139, 92, 246, 0.3);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(22px);
+    }
+
+    /* Right side panels tabs */
+    .dashboard-main {
+      display: flex;
+      flex-direction: column;
+      gap: 30px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 12px;
+      border-bottom: 1px solid var(--panel-border);
+      padding-bottom: 16px;
+    }
+
+    .tab {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 15px;
+      font-weight: 500;
+      padding: 8px 16px;
+      cursor: pointer;
+      font-family: inherit;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .tab.active {
+      color: #fff;
+      background: rgba(139, 92, 246, 0.15);
+      border: 1px solid rgba(139, 92, 246, 0.3);
+    }
+
+    .tab:hover:not(.active) {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* Tables & Lists */
+    .table-container {
+      overflow-x: auto;
+      margin-top: 15px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+
+    th {
+      padding: 14px 16px;
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: 13px;
+      border-bottom: 1px solid var(--panel-border);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    td {
+      padding: 16px;
+      font-size: 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      color: var(--text-main);
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.01);
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .badge-success {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--success);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+
+    .badge-danger {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    .badge-warning {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--warning);
+      border: 1px solid rgba(245, 158, 11, 0.2);
+    }
+
+    /* Modal styles */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(5, 7, 12, 0.85);
+      backdrop-filter: blur(12px);
+      z-index: 1000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s ease;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 20px;
+      padding: 32px;
+      width: 100%;
+      max-width: 480px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+      transform: scale(0.9);
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .modal-overlay.active .modal-card {
+      transform: scale(1);
+    }
+
+    .modal-header {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #fff;
+    }
+
+    .modal-desc {
+      color: var(--text-muted);
+      font-size: 14px;
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    /* Chat log items */
+    .history-list {
+      max-height: 400px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+    }
+
+    .chat-bubble {
+      padding: 10px 14px;
+      border-radius: 12px;
+      max-width: 85%;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .chat-bubble.user {
+      align-self: flex-end;
+      background: var(--primary);
+      color: #fff;
+      border-bottom-right-radius: 2px;
+    }
+
+    .chat-bubble.assistant {
+      align-self: flex-start;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-main);
+      border-bottom-left-radius: 2px;
+      border: 1px solid var(--panel-border);
+    }
+
+    .chat-time {
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.4);
+      margin-top: 4px;
+      text-align: right;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo-container">
+      <div class="logo-glow"></div>
+      <h1>Big Bazar — AI Inbox Agent</h1>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: center;">
+      <button class="btn btn-secondary" onclick="refreshData()">Refresh Data</button>
+      <button class="btn btn-secondary btn-danger" onclick="logout()">Disconnect</button>
+    </div>
+  </header>
+
+  <div class="container">
+    
+    <!-- Left Panel: Global Settings -->
+    <aside class="panel">
+      <h3 class="panel-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary)"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        Agent Controls
+      </h3>
+      
+      <div class="toggle-container">
+        <div class="toggle-info">
+          <h4>Auto-Reply</h4>
+          <p>Enables chatbot responses</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggleAutoReply">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="toggle-container">
+        <div class="toggle-info">
+          <h4>Test Phase Mode</h4>
+          <p>Replies only to tester PSIDs</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggleTestMode">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="form-group" style="margin-top: 24px;">
+        <label class="form-label" for="testerPsidsInput">Tester Facebook PSIDs</label>
+        <textarea class="form-input" id="testerPsidsInput" rows="4" placeholder="Enter comma-separated IDs (e.g. 10023458, 20384859)"></textarea>
+        <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 6px;">
+          Only these Facebook IDs will receive bot replies when Test Phase Mode is enabled.
+        </span>
+      </div>
+
+      <button class="btn" style="width: 100%; margin-top: 10px;" onclick="saveSettings()">Save Settings</button>
+    </aside>
+
+    <!-- Right Side: Content Area (Tabs) -->
+    <main class="dashboard-main">
+      
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('conversations')">Active Conversations</button>
+        <button class="tab" onclick="switchTab('orders')">Collected Orders</button>
+      </div>
+
+      <!-- Tab: Conversations -->
+      <section id="tab-conversations" class="tab-content active panel">
+        <h3 class="panel-title">Active Conversations</h3>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Customer ID</th>
+                <th>Current State</th>
+                <th>Bot Status</th>
+                <th>Handoff Reason</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="conversations-table-body">
+              <tr>
+                <td colspan="5" class="empty-state">Loading active chats...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Tab: Orders -->
+      <section id="tab-orders" class="tab-content panel">
+        <h3 class="panel-title">Collected Orders</h3>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Customer Details</th>
+                <th>Product Information</th>
+                <th>Order Total</th>
+                <th>Ref / Digit</th>
+                <th>Status</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody id="orders-table-body">
+              <tr>
+                <td colspan="6" class="empty-state">Loading order logs...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- AUTH MODAL (Token Prompt) -->
+  <div class="modal-overlay" id="auth-modal">
+    <div class="modal-card">
+      <div class="modal-header">Enter Admin Secret</div>
+      <div class="modal-desc">
+        Accessing the dashboard requires your project's <code>ADMIN_SECRET</code> key. This token is securely used to authenticate calls to the server.
+      </div>
+      <div class="form-group">
+        <input type="password" class="form-input" id="adminSecretInput" placeholder="Enter ADMIN_SECRET">
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="saveAdminSecret()">Connect Dashboard</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORY MODAL -->
+  <div class="modal-overlay" id="history-modal">
+    <div class="modal-card" style="max-width: 600px;">
+      <div class="modal-header" id="history-modal-title">Chat History</div>
+      <div class="modal-desc" id="history-modal-desc">Viewing last 10 messages.</div>
+      
+      <div class="history-list" id="history-chat-container">
+        <!-- Bubbles loaded dynamically -->
+      </div>
+      
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeHistoryModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let activeTab = 'conversations';
+    let currentConversations = [];
+
+    // On Load
+    document.addEventListener('DOMContentLoaded', () => {
+      checkAuth();
+    });
+
+    function getHeaders() {
+      const secret = localStorage.getItem('x-admin-token');
+      return {
+        'x-admin-token': secret,
+        'Content-Type': 'application/json'
+      };
+    }
+
+    function checkAuth() {
+      const secret = localStorage.getItem('x-admin-token');
+      if (!secret) {
+        document.getElementById('auth-modal').classList.add('active');
+      } else {
+        document.getElementById('auth-modal').classList.remove('active');
+        refreshData();
+      }
+    }
+
+    function saveAdminSecret() {
+      const val = document.getElementById('adminSecretInput').value.trim();
+      if (!val) {
+        alert('Please enter a secret key');
+        return;
+      }
+      localStorage.setItem('x-admin-token', val);
+      checkAuth();
+    }
+
+    function logout() {
+      localStorage.removeItem('x-admin-token');
+      location.reload();
+    }
+
+    function switchTab(tabId) {
+      activeTab = tabId;
+      document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      
+      // Select the clicked tab
+      const clickedTab = Array.from(document.querySelectorAll('.tab')).find(el => el.textContent.toLowerCase().includes(tabId));
+      if (clickedTab) clickedTab.classList.add('active');
+      
+      document.getElementById(`tab-${tabId}`).classList.add('active');
+    }
+
+    async function refreshData() {
+      const secret = localStorage.getItem('x-admin-token');
+      if (!secret) return;
+      
+      try {
+        await Promise.all([
+          loadSettings(),
+          loadConversations(),
+          loadOrders()
+        ]);
+      } catch (err) {
+        if (err.message === '410' || err.status === 401) {
+          alert('Invalid Admin Secret! Disconnecting...');
+          logout();
+        } else {
+          console.error(err);
+        }
+      }
+    }
+
+    async function makeRequest(url, method = 'GET', body = null) {
+      const opts = {
+        method,
+        headers: getHeaders()
+      };
+      if (body) opts.body = JSON.stringify(body);
+
+      const res = await fetch(url, opts);
+      if (res.status === 401) {
+        throw { status: 401, message: 'Unauthorized' };
+      }
+      if (!res.ok) {
+        throw new Error(`API error: ${res.statusText}`);
+      }
+      return res.json();
+    }
+
+    // ── Settings ─────────────────────────────────────────────────────────────
+    async function loadSettings() {
+      const settings = await makeRequest('/admin/settings');
+      document.getElementById('toggleAutoReply').checked = settings.AUTO_REPLY_ENABLED === 'true';
+      document.getElementById('toggleTestMode').checked = settings.TEST_MODE === 'true';
+      document.getElementById('testerPsidsInput').value = settings.TESTER_PSIDS || '';
+    }
+
+    async function saveSettings() {
+      const body = {
+        AUTO_REPLY_ENABLED: document.getElementById('toggleAutoReply').checked ? 'true' : 'false',
+        TEST_MODE: document.getElementById('toggleTestMode').checked ? 'true' : 'false',
+        TESTER_PSIDS: document.getElementById('testerPsidsInput').value.trim()
+      };
+
+      try {
+        await makeRequest('/admin/settings', 'POST', body);
+        alert('Settings saved successfully!');
+        refreshData();
+      } catch (err) {
+        alert(`Failed to save settings: ${err.message}`);
+      }
+    }
+
+    // ── Conversations ────────────────────────────────────────────────────────
+    async function loadConversations() {
+      const body = document.getElementById('conversations-table-body');
+      try {
+        const list = await makeRequest('/admin/conversations');
+        currentConversations = list;
+        body.innerHTML = '';
+        
+        if (list.length === 0) {
+          body.innerHTML = `<tr><td colspan="5" class="empty-state">No conversations found in system memory.</td></tr>`;
+          return;
+        }
+
+        list.forEach(c => {
+          const isPaused = c.paused_by_ai;
+          const statusBadge = isPaused 
+            ? `<span class="badge badge-danger">AI Paused (Handoff)</span>` 
+            : `<span class="badge badge-success">AI Active</span>`;
+          
+          const pauseResumeBtn = isPaused
+            ? `<button class="btn btn-secondary btn-success" style="padding:6px 12px;font-size:12px;" onclick="resumeBot('${c.sender_id}')">Resume Bot</button>`
+            : `<button class="btn btn-secondary btn-danger" style="padding:6px 12px;font-size:12px;" onclick="pauseBot('${c.sender_id}')">Pause Bot</button>`;
+
+          const viewHistoryBtn = `<button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="viewHistory('${c.sender_id}')">View Chat</button>`;
+
+          body.innerHTML += `
+            <tr>
+              <td><code>${c.sender_id}</code></td>
+              <td><span class="badge badge-warning">${c.state}</span></td>
+              <td>${statusBadge}</td>
+              <td style="color: var(--text-muted); font-size:13px;">${c.paused_reason || '—'}</td>
+              <td>
+                <div style="display:flex; gap:8px;">
+                  ${pauseResumeBtn}
+                  ${viewHistoryBtn}
+                </div>
+              </td>
+            </tr>
+          `;
+        });
+      } catch (err) {
+        body.innerHTML = `<tr><td colspan="5" class="empty-state" style="color:var(--danger)">Failed to load conversations: ${err.message}</td></tr>`;
+        throw err;
+      }
+    }
+
+    async function pauseBot(id) {
+      const reason = prompt('Enter a reason for pausing AI (shown to moderator):', 'Manual take over');
+      if (reason === null) return; // cancelled
+      try {
+        await makeRequest(`/admin/conversations/${id}/pause`, 'POST', { reason });
+        loadConversations();
+      } catch (err) {
+        alert(`Failed to pause: ${err.message}`);
+      }
+    }
+
+    async function resumeBot(id) {
+      try {
+        await makeRequest(`/admin/conversations/${id}/resume`, 'POST');
+        loadConversations();
+      } catch (err) {
+        alert(`Failed to resume: ${err.message}`);
+      }
+    }
+
+    function viewHistory(id) {
+      const convo = currentConversations.find(c => c.sender_id === id);
+      if (!convo) return;
+
+      document.getElementById('history-modal-title').textContent = `Chat History: ${id}`;
+      const container = document.getElementById('history-chat-container');
+      container.innerHTML = '';
+
+      const history = convo.message_history || [];
+      if (history.length === 0) {
+        container.innerHTML = `<div class="empty-state">No chat log exists for this session.</div>`;
+      } else {
+        history.forEach(h => {
+          const bubble = document.createElement('div');
+          bubble.className = `chat-bubble ${h.role}`;
+          bubble.innerHTML = `
+            <div>${escapeHtml(h.content)}</div>
+            <div class="chat-time">${h.ts ? new Date(h.ts).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}</div>
+          `;
+          container.appendChild(bubble);
+        });
+      }
+
+      document.getElementById('history-modal').classList.add('active');
+    }
+
+    function closeHistoryModal() {
+      document.getElementById('history-modal').classList.remove('active');
+    }
+
+    // ── Orders ───────────────────────────────────────────────────────────────
+    async function loadOrders() {
+      const body = document.getElementById('orders-table-body');
+      try {
+        const list = await makeRequest('/admin/orders');
+        body.innerHTML = '';
+
+        if (list.length === 0) {
+          body.innerHTML = `<tr><td colspan="6" class="empty-state">No order logs found in database.</td></tr>`;
+          return;
+        }
+
+        list.forEach(o => {
+          const dateStr = o.created_at ? new Date(o.created_at).toLocaleDateString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : '—';
+          
+          body.innerHTML += `
+            <tr>
+              <td>
+                <div style="font-weight:600; color:#fff;">${escapeHtml(o.customer_name)}</div>
+                <div style="font-size:12px; color:var(--text-muted);">${escapeHtml(o.customer_phone)}</div>
+                <div style="font-size:11px; color:rgba(255,255,255,0.4); margin-top:2px; max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(o.customer_address)}">${escapeHtml(o.customer_address)}</div>
+              </td>
+              <td>
+                <div style="font-weight:500;">${escapeHtml(o.product_name)}</div>
+                <div style="font-size:12px; color:var(--text-muted);">${o.variant ? `Size/Color: ${escapeHtml(o.variant)}` : '—'}</div>
+              </td>
+              <td style="font-weight:600; color:var(--secondary);">${o.product_price} BDT</td>
+              <td><code>${escapeHtml(o.last_four_digits || 'COD')}</code></td>
+              <td><span class="badge ${o.status === 'pending_payment' ? 'badge-warning' : 'badge-success'}">${o.status}</span></td>
+              <td style="font-size:12px; color:var(--text-muted);">${dateStr}</td>
+            </tr>
+          `;
+        });
+      } catch (err) {
+        body.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--danger)">Failed to load orders: ${err.message}</td></tr>`;
+        throw err;
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+</html>

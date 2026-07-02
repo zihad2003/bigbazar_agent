@@ -8,7 +8,13 @@
 
 import Groq from 'groq-sdk';
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+let groqClient;
+function getGroq() {
+  if (!groqClient) {
+    groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  }
+  return groqClient;
+}
 
 const MODEL = 'qwen/qwen3.6-27b';
 
@@ -47,6 +53,7 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
 
   messages.push({ role: 'user', content });
 
+  const groq = getGroq();
   const response = await groq.chat.completions.create({
     model: MODEL,
     max_tokens: 2048,

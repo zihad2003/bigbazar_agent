@@ -9,7 +9,7 @@
  */
 
 import { Router } from 'express';
-import { getConversations, getOrders, updateConversation } from '../services/d1.js';
+import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached } from '../services/d1.js';
 
 export const adminRouter = Router();
 
@@ -60,6 +60,39 @@ adminRouter.get('/orders', async (_req, res) => {
   try {
     const data = await getOrders(100);
     res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+// ── Settings ──────────────────────────────────────────────────────────────────
+adminRouter.get('/settings', async (_req, res) => {
+  try {
+    const autoReplyEnabled = await getSettingCached('AUTO_REPLY_ENABLED', 'true');
+    const testMode = await getSettingCached('TEST_MODE', 'false');
+    const testerPsids = await getSettingCached('TESTER_PSIDS', '');
+    res.json({
+      AUTO_REPLY_ENABLED: autoReplyEnabled,
+      TEST_MODE: testMode,
+      TESTER_PSIDS: testerPsids
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.post('/settings', async (req, res) => {
+  try {
+    const { AUTO_REPLY_ENABLED, TEST_MODE, TESTER_PSIDS } = req.body;
+    if (AUTO_REPLY_ENABLED !== undefined) {
+      await setSettingCached('AUTO_REPLY_ENABLED', String(AUTO_REPLY_ENABLED));
+    }
+    if (TEST_MODE !== undefined) {
+      await setSettingCached('TEST_MODE', String(TEST_MODE));
+    }
+    if (TESTER_PSIDS !== undefined) {
+      await setSettingCached('TESTER_PSIDS', String(TESTER_PSIDS));
+    }
+    res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

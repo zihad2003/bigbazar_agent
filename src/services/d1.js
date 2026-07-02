@@ -50,6 +50,46 @@ const DEFAULT_STATE = {
   order_address: null,
 };
 
+let settingsCache = {};
+let tableChecked = false;
+
+async function ensureSettingsTable() {
+  if (tableChecked) return;
+  await executeQuery(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    )
+  `);
+  tableChecked = true;
+}
+
+export async function getSettingCached(key, defaultValue) {
+  if (settingsCache[key] !== undefined) {
+    return settingsCache[key];
+  }
+  await ensureSettingsTable();
+  const result = await executeQuery('SELECT value FROM settings WHERE key = ? LIMIT 1', [key]);
+  const rows = result?.results || [];
+  if (rows.length > 0) {
+    settingsCache[key] = rows[0].value;
+    return rows[0].value;
+  }
+  const envVal = process.env[key];
+  const finalVal = envVal !== undefined ? envVal : defaultValue;
+  settingsCache[key] = finalVal;
+  return finalVal;
+}
+
+export async function setSettingCached(key, value) {
+  await ensureSettingsTable();
+  await executeQuery(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?',
+    [key, value, value]
+  );
+  settingsCache[key] = value;
+}
+
 export async function getOrCreateConversation(senderId) {
   const result = await executeQuery(
     'SELECT * FROM conversations WHERE sender_id = ? LIMIT 1',
