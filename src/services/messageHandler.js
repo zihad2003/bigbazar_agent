@@ -59,20 +59,20 @@ export async function handleMessage(event) {
     case 'COLLECT_NAME': {
       const name = messageText.trim();
       stateUpdate = { state: 'COLLECT_ADDRESS', order_name: name };
-      reply = `Dhonnobad, ${name} apu/bhai! 😊\n\nEkhon delivery address ta share korben please? (Gram/Moholla, Thana, Zilla)`;
+      reply = `ধন্যবাদ, ${name}! 😊\n\nঅনুগ্রহ করে আপনার ডেলিভারি অ্যাড্রেসটি (গ্রাম/মহল্লা, থানা, জেলা) লিখে দিন।`;
       break;
     }
 
     case 'COLLECT_ADDRESS': {
       stateUpdate = { state: 'COLLECT_PHONE', order_address: messageText.trim() };
-      reply = `Perfect! ✅\n\nApnar active phone number ta bolun?`;
+      reply = `ধন্যবাদ! ✅\n\nএবার আপনার সচল মোবাইল নম্বরটি দিন।`;
       break;
     }
 
     case 'COLLECT_PHONE': {
       const phone = extractOrderField('phone', messageText);
       if (!phone) {
-        reply = `Apu, valid phone number ta bolun please (e.g. 017XXXXXXXX)`;
+        reply = `অনুগ্রহ করে একটি সঠিক মোবাইল নম্বর দিন (যেমন: ০১৭XXXXXXXX)`;
         break;
       }
 
@@ -95,21 +95,21 @@ export async function handleMessage(event) {
 
       const total = (conversation.pending_product_price ?? 0) + 80;
       reply =
-`✅ *Order Confirmed!* 🎉
+`✅ *অর্ডার কনফার্ম হয়েছে!* 🎉
 
-👤 Nam: ${conversation.order_name}
-📦 Product: ${conversation.pending_product_name}${conversation.pending_variant ? ` (${conversation.pending_variant})` : ''}
-📍 Address: ${conversation.order_address}
-📞 Phone: ${phone}
-💰 Price: ${conversation.pending_product_price} taka
-🚚 Delivery: 80 taka
-💵 *Total: ${total} taka*
+👤 নাম: ${conversation.order_name}
+📦 প্রোডাক্ট: ${conversation.pending_product_name}${conversation.pending_variant ? ` (${conversation.pending_variant})` : ''}
+📍 ঠিকানা: ${conversation.order_address}
+📞 মোবাইল: ${phone}
+💰 মূল্য: ${conversation.pending_product_price} টাকা
+🚚 ডেলিভারি চার্জ: ৮০ টাকা
+💵 *মোট: ${total} টাকা*
 
 ──────────────────
-bKash / Nagad: *${process.env.BKASH_NUMBER}*
-Payment korle "paid" likhe pathaben! 🙏
+বিকাশ / নগদ (পার্সোনাল): *${process.env.BKASH_NUMBER}*
+পেমেন্ট করার পর অনুগ্রহ করে "paid" বা "পেইড" লিখে জানাবেন! 🙏
 
-Delivery hobe 2-3 business day-er moddhe. Onek dhonnobad! 🛍️`;
+আগামী ২-৩ কর্মদিবসের মধ্যে ডেলিভারি পেয়ে যাবেন। বিগ বাজারের সাথে থাকার জন্য ধন্যবাদ! 🛍️`;
 
       await notifyModerator({
         type: 'NEW_ORDER',
@@ -184,7 +184,7 @@ async function triggerHandoff(senderId, conversation, reason) {
 
   await sendMessage(
     senderId,
-    'Ji apu/bhai, ektu wait korun! 🙏\n\nAmader team member apnar shonge shigghiri kotha bolbe. Dhonnobad apnar shathe! 😊'
+    'জি, অনুগ্রহ করে একটু অপেক্ষা করুন! 🙏\n\nআমাদের কাস্টমার কেয়ার টিম থেকে একজন খুব শীঘ্রই আপনার সাথে যোগাযোগ করবেন। আমাদের সাথে থাকার জন্য ধন্যবাদ! 😊'
   );
 
   await notifyModerator({
