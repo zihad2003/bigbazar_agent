@@ -25,6 +25,7 @@ app.use(requestLogger);
 
 // Serve static dashboard
 app.use('/dashboard', express.static(path.join(__dirname, '../public')));
+app.get('/dashbroad', (req, res) => res.redirect('/dashboard'));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/webhook', webhookRouter);   // Facebook webhook
