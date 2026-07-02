@@ -14,25 +14,26 @@ import { searchProductsByText, getCatalogSnapshot } from '../db/tidb.js';
  * as the search query. See messageHandler.js for the call order.
  */
 export async function searchProducts(messageText, imageUrl) {
-  // If there's no useful text yet (e.g. image just arrived, not yet
-  // described by the AI), return a broad recent-catalog snapshot so the
-  // AI has *something* to ground itself with on the first pass.
-  if (!messageText?.trim() && imageUrl) {
-    return getCatalogSnapshot(40);
+  let results = [];
+
+  if (messageText?.trim()) {
+    // Strip common filler words so "price koto ei saree ta" → "saree"
+    const cleaned = messageText
+      .replace(/\b(price|koto|dam|ki|ta|er|ei|the|what|is)\b/gi, '')
+      .trim();
+
+    results = await searchProductsByText(cleaned || messageText, 6);
+
+    // Fallback: if nothing matched the cleaned query, try the raw message
+    if (results.length === 0 && cleaned !== messageText) {
+      results = await searchProductsByText(messageText, 6);
+    }
   }
 
-  if (!messageText?.trim()) return [];
-
-  // Strip common filler words so "price koto ei saree ta" → "saree"
-  const cleaned = messageText
-    .replace(/\b(price|koto|dam|ki|ta|er|ei|the|what|is)\b/gi, '')
-    .trim();
-
-  const results = await searchProductsByText(cleaned || messageText, 6);
-
-  // Fallback: if nothing matched the cleaned query, try the raw message
-  if (results.length === 0 && cleaned !== messageText) {
-    return searchProductsByText(messageText, 6);
+  // If we have an image and no text search results, return a larger catalog snapshot
+  // so the vision model can match the image against the actual products in the prompt context.
+  if (results.length === 0 && imageUrl) {
+    return getCatalogSnapshot(80);
   }
 
   return results;

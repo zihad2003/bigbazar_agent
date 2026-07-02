@@ -35,7 +35,7 @@ async function executeQuery(sql, params = []) {
     throw new Error(`D1 Query Error: ${JSON.stringify(data.errors || data)}`);
   }
 
-  return data.result;
+  return data.result[0];
 }
 
 const DEFAULT_STATE = {
@@ -56,8 +56,9 @@ export async function getOrCreateConversation(senderId) {
     [senderId]
   );
 
-  if (result.length > 0) {
-    const row = result[0];
+  const rows = result?.results || [];
+  if (rows.length > 0) {
+    const row = rows[0];
     // Convert SQLite boolean (0/1) to JS boolean
     row.paused_by_ai = row.paused_by_ai === 1;
     // Parse JSON fields
@@ -130,7 +131,8 @@ export async function getConversations(limit = 50) {
     [limit]
   );
 
-  return result.map(row => ({
+  const rows = result?.results || [];
+  return rows.map(row => ({
     ...row,
     paused_by_ai: row.paused_by_ai === 1,
     message_history: JSON.parse(row.message_history || '[]')
@@ -143,5 +145,5 @@ export async function getOrders(limit = 100) {
     [limit]
   );
 
-  return result;
+  return result?.results || [];
 }

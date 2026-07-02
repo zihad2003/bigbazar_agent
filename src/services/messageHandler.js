@@ -136,7 +136,7 @@ Delivery hobe 2-3 business day-er moddhe. Onek dhonnobad! 🛍️`;
       };
 
       const systemPrompt = buildSystemPrompt(context);
-      const aiResult = await getAIReply(systemPrompt, messageText, imageUrl);
+      const aiResult = await getAIReply(systemPrompt, messageText, imageUrl, conversation.message_history ?? []);
 
       reply = aiResult.text;
 
