@@ -41,10 +41,9 @@ export function getTiDBPool() {
     password: process.env.TIDB_PASSWORD,
     database: process.env.TIDB_DATABASE,
     ssl: {
-      // TiDB Cloud requires TLS. Serverless tiers work with minVersion only;
-      // if your cluster provides a CA bundle, point ca: fs.readFileSync(...) instead.
+      // Aiven uses self-signed certificates - allow them for connection
       minVersion: 'TLSv1.2',
-      rejectUnauthorized: true,
+      rejectUnauthorized: false,
     },
     waitForConnections: true,
     connectionLimit: 5,       // keep low — serverless tiers throttle connections
