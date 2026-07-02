@@ -205,3 +205,10 @@ export async function getOrders(limit = 100) {
 
   return result?.results || [];
 }
+
+export async function updateOrderStatus(id, status) {
+  await executeQuery(
+    'UPDATE orders SET status = ? WHERE id = ?',
+    [status, id]
+  );
+}

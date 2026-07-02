@@ -10,7 +10,7 @@
 
 import { Router } from 'express';
 import crypto from 'crypto';
-import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached } from '../services/d1.js';
+import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus } from '../services/d1.js';
 
 export const adminRouter = Router();
 
@@ -101,6 +101,16 @@ adminRouter.post('/settings', async (req, res) => {
     if (TESTER_PSIDS !== undefined) {
       await setSettingCached('TESTER_PSIDS', String(TESTER_PSIDS));
     }
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.post('/orders/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body;
+    await updateOrderStatus(req.params.id, status);
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
