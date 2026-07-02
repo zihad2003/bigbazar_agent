@@ -69,8 +69,24 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
  *   {"intent": "PRODUCT_FOUND", "productName": "...", "productPrice": 1850, "variant": "Red, M"}
  */
 function parseAIResponse(rawText) {
-  // Strip <think>...</think> tag blocks to prevent internal reasoning leaking to customers
-  let cleanedText = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  // Strip <think>...</think> tag blocks to prevent internal reasoning leaking to customers (even if unclosed due to truncation)
+  let cleanedText = rawText;
+  if (cleanedText.includes('<think>')) {
+    const parts = cleanedText.split('<think>');
+    const beforeThink = parts[0];
+    const afterThink = parts.slice(1).join('<think>');
+    
+    const endIdx = afterThink.indexOf('</think>');
+    if (endIdx !== -1) {
+      cleanedText = (beforeThink + afterThink.slice(endIdx + 8)).trim();
+    } else {
+      // If unclosed, strip everything after <think>
+      cleanedText = beforeThink.trim();
+    }
+  }
+
+  // Also clean up any loose </think> tags
+  cleanedText = cleanedText.replace(/<\/think>/g, '').trim();
 
   const splitToken = '---CONTROL---';
   const idx = cleanedText.indexOf(splitToken);
