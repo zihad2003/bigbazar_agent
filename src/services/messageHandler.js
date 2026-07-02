@@ -13,7 +13,7 @@ import { getOrCreateConversation, updateConversation, getSettingCached } from '.
 import { getAIReply } from './groq.js';
 import { searchProducts } from './productSearch.js';
 import { saveOrder } from './orderService.js';
-import { sendMessage, sendTypingIndicator } from './messenger.js';
+import { sendMessage, sendImageMessage, sendTypingIndicator } from './messenger.js';
 import { notifyModerator } from './notifier.js';
 import { detectHandoffIntent, extractOrderField, isProductQuery } from '../utils/nlp.js';
 import { buildSystemPrompt } from '../utils/prompts.js';
@@ -226,6 +226,15 @@ export async function handleMessage(event) {
         pending_product_price: aiResult.productPrice ?? null,
         pending_variant: aiResult.variant ?? null,
       };
+
+      // Send product image if AI provided one
+      if (aiResult.imageUrl) {
+        try {
+          await sendImageMessage(senderId, aiResult.imageUrl);
+        } catch (e) {
+          console.error('Failed to send product image:', e.message);
+        }
+      }
     } else if (aiResult.intent === 'START_ORDER') {
       stateUpdate = { state: 'COLLECT_NAME' };
     } else if (aiResult.intent === 'HANDOFF') {

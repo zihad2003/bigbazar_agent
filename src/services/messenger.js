@@ -18,6 +18,24 @@ export async function sendMessage(recipientId, text) {
   }
 }
 
+/**
+ * Send an image via URL to a Messenger user.
+ * Used to share product photos when customer asks "ছবি দেখান".
+ */
+export async function sendImageMessage(recipientId, imageUrl) {
+  if (!imageUrl) return;
+  await callSendAPI({
+    recipient: { id: recipientId },
+    message: {
+      attachment: {
+        type: 'image',
+        payload: { url: imageUrl, is_reusable: true },
+      },
+    },
+    messaging_type: 'RESPONSE',
+  });
+}
+
 export async function sendTypingIndicator(recipientId, on) {
   await callSendAPI({
     recipient: { id: recipientId },
