@@ -265,14 +265,16 @@ export async function handleMessage(event) {
     // Fetch training examples (moderator corrections) for relevant context
     let trainingExamples = [];
     try {
-      trainingExamples = await getRelevantTrainingExamples(messageText, 6);
+      trainingExamples = await getRelevantTrainingExamples(messageText, 3);
     } catch (e) {
       console.warn('Training examples fetch failed (table may not exist yet):', e.message);
     }
 
+    const historySlice = (conversation.message_history ?? []).slice(-6);
+
     const context = {
       state: conversation.state,
-      history: conversation.message_history ?? [],
+      history: historySlice,
       products,
       imageUrl,
       pendingProduct: conversation.pending_product_name,
@@ -285,7 +287,7 @@ export async function handleMessage(event) {
       systemPrompt,
       messageText,
       imageUrl,
-      conversation.message_history ?? []
+      historySlice
     );
 
     reply = aiResult.text;
@@ -331,7 +333,7 @@ export async function handleMessage(event) {
   const userEntry = messageText || (imageUrl ? '[ছবি পাঠিয়েছে]' : null);
 
   const newHistory = [
-    ...(conversation.message_history ?? []).slice(-15), // keep last 15 turns
+    ...(conversation.message_history ?? []).slice(-8), // keep last 8 turns
     ...(userEntry ? [{ role: 'user', content: userEntry, ts: Date.now() }] : []),
     { role: 'assistant', content: reply, ts: Date.now() },
   ];

@@ -93,7 +93,7 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
 
   messages.push({ role: 'user', content });
 
-  const response = await callGroqWithFallback(messages, 1024, 0.5);
+  const response = await callGroqWithFallback(messages, 300, 0.5);
   const rawText = response.choices[0]?.message?.content || '';
 
   return parseAIResponse(rawText);
