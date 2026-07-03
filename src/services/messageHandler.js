@@ -71,47 +71,84 @@ export async function handleMessage(event) {
 
     // ── Structured data collection states — no AI, no DB needed ──────────────
 
-    case 'COLLECT_NAME': {
-      const name = messageText;
-      if (!name || name.length < 2) {
-        reply = 'আপনার পুরো নামটা লিখুন।';
-        break;
-      }
-      stateUpdate = { state: 'COLLECT_ADDRESS', order_name: name };
-      reply = `ধন্যবাদ ${name}! এবার ডেলিভারি ঠিকানা দিন (গ্রাম/মহল্লা, থানা, জেলা)।`;
-      break;
-    }
-
-    case 'COLLECT_ADDRESS': {
-      if (!messageText || messageText.length < 5) {
-        reply = 'সম্পূর্ণ ঠিকানা লিখুন (গ্রাম, থানা, জেলা)।';
-        break;
-      }
-      stateUpdate = { state: 'COLLECT_PHONE', order_address: messageText };
-      reply = 'ধন্যবাদ! এবার সচল মোবাইল নম্বর দিন।';
-      break;
-    }
-
+    case 'COLLECT_NAME':
+    case 'COLLECT_ADDRESS':
     case 'COLLECT_PHONE': {
-      // Escape hatch: if customer sends cancel/reset keywords or a product query, break out
-      const cancelWords = ['না', 'cancel', 'বাদ', 'থাক', 'দরকার নেই', 'লাগবে না', 'আর না'];
+      // ── Shared escape logic for ALL collect states ──────────────────────────
       const lowerMsg = messageText.toLowerCase();
+
+      // Cancel/escape keywords — Bengali, English, Banglish
+      const cancelWords = [
+        'না', 'cancel', 'বাদ', 'থাক', 'দরকার নেই', 'লাগবে না', 'আর না',
+        'no', 'nah', 'stop', 'bad', 'thak', 'lagbe na', 'dorkar nei',
+      ];
       if (cancelWords.some(w => lowerMsg.includes(w))) {
         stateUpdate = { state: 'GREETING', pending_product_name: null, pending_product_price: null, pending_variant: null, order_name: null, order_address: null };
         reply = 'ঠিক আছে, অর্ডার বাতিল করা হয়েছে। 🙏 অন্য কিছু দেখতে চাইলে বলুন!';
         break;
       }
 
-      // If customer types a product keyword while stuck, reset and let AI handle
+      // If customer asks a question or product query while in collect state, reset and route to AI
       if (isProductQuery(messageText)) {
         stateUpdate = { state: 'GREETING', pending_product_name: null, pending_product_price: null, pending_variant: null, order_name: null, order_address: null };
         needsAI = true;
         break;
       }
 
+      // Detect non-order questions (delivery, payment, etc.) — route to AI
+      const questionWords = ['kobe', 'কবে', 'কখন', 'when', 'কেন', 'why', 'কিভাবে', 'how', 'ki hobe', 'কী হবে', 'pabo', 'পাবো', 'delivery', 'ডেলিভারি'];
+      if (questionWords.some(w => lowerMsg.includes(w))) {
+        stateUpdate = { state: 'GREETING', pending_product_name: null, pending_product_price: null, pending_variant: null, order_name: null, order_address: null };
+        needsAI = true;
+        break;
+      }
+
+      // Count recent failed attempts in this state from history
+      const history = conversation.message_history ?? [];
+      const recentFails = history.slice(-6).filter(h => h.role === 'assistant' && (
+        h.content.includes('নামটা লিখুন') || h.content.includes('ঠিকানা লিখুন') || h.content.includes('মোবাইল নম্বর')
+      )).length;
+
+      if (recentFails >= 3) {
+        stateUpdate = { state: 'GREETING', pending_product_name: null, pending_product_price: null, pending_variant: null, order_name: null, order_address: null };
+        reply = 'মনে হচ্ছে সমস্যা হচ্ছে। 🙏 অর্ডার বাতিল করা হলো — আবার যেকোনো সময় অর্ডার দিতে পারবেন!';
+        break;
+      }
+
+      // ── State-specific validation ──────────────────────────────────────────
+      if (conversation.state === 'COLLECT_NAME') {
+        const name = messageText;
+        // Name must be 2+ chars, contain at least one Bengali or Latin letter (not pure numbers/symbols)
+        const hasLetters = /[a-zA-Z\u0980-\u09FF]/.test(name);
+        if (!name || name.length < 2 || !hasLetters) {
+          reply = 'আপনার পুরো নামটা বাংলায় বা ইংরেজিতে লিখুন। অর্ডার বাতিল করতে "cancel" লিখুন।';
+          break;
+        }
+        stateUpdate = { state: 'COLLECT_ADDRESS', order_name: name };
+        reply = `ধন্যবাদ ${name}! এবার ডেলিভারি ঠিকানা দিন (গ্রাম/মহল্লা, থানা, জেলা)।`;
+        break;
+      }
+
+      if (conversation.state === 'COLLECT_ADDRESS') {
+        if (!messageText || messageText.length < 5) {
+          reply = 'সম্পূর্ণ ঠিকানা লিখুন (গ্রাম, থানা, জেলা)। অর্ডার বাতিল করতে "cancel" লিখুন।';
+          break;
+        }
+        stateUpdate = { state: 'COLLECT_PHONE', order_address: messageText };
+        reply = 'ধন্যবাদ! এবার সচল মোবাইল নম্বর দিন (যেমন: ০১৭XXXXXXXX)।';
+        break;
+      }
+
+      // COLLECT_PHONE
       const phone = extractOrderField('phone', messageText);
       if (!phone) {
-        reply = 'মোবাইল নম্বরটি সঠিকভাবে লিখুন (যেমন: ০১৭XXXXXXXX)। অর্ডার বাতিল করতে "বাদ" লিখুন।';
+        // Check if there are ANY digits at all — if not, it's clearly not a phone attempt
+        const hasAnyDigit = /[\d০-৯]/.test(messageText);
+        if (!hasAnyDigit) {
+          reply = 'মোবাইল নম্বর দিন (যেমন: ০১৭XXXXXXXX)। অন্য কিছু জানতে চাইলে বা অর্ডার বাতিল করতে "cancel" লিখুন।';
+        } else {
+          reply = 'নম্বরটি সম্পূর্ণ নয়। ১১ ডিজিটের সঠিক নম্বর দিন (যেমন: ০১৭XXXXXXXX)।';
+        }
         break;
       }
 
