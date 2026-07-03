@@ -36,12 +36,13 @@ export async function notifyModerator(payload) {
 
 function formatAlert(payload) {
   if (payload.type === 'HANDOFF_NEEDED') {
-    return `🤝 <b>Handoff needed</b>\nReason: ${payload.reason}\nCustomer ID: ${payload.senderId}\nLast message: "${payload.lastMessage}"\n\nOpen Meta Business Suite to take over.`;
+    const chatUrl = `https://business.facebook.com/latest/inbox/all?selected_item_id=${payload.senderId}`;
+    return `🤝 <b>Handoff needed</b>\nReason: ${payload.reason}\nCustomer ID: <code>${payload.senderId}</code>\nLast message: "${payload.lastMessage}"\n\n⚓ <a href="${chatUrl}">Open Meta Business Suite Chat</a>\nOr use the admin panel to resume bot when finished.`;
   }
 
   if (payload.type === 'NEW_ORDER') {
     const { order } = payload;
-    return `🎉 <b>New order!</b>\nName: ${order.name}\nProduct: ${order.product}\nTotal: ${order.total} taka\nCustomer ID: ${payload.senderId}\n\nConfirm payment when received.`;
+    return `🎉 <b>New order!</b>\nName: ${order.name}\nProduct: ${order.product}\nTotal: ${order.total} taka\nCustomer ID: <code>${payload.senderId}</code>\n\nConfirm payment when received.`;
   }
 
   return `ℹ️ ${JSON.stringify(payload)}`;

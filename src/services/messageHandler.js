@@ -9,7 +9,7 @@
  *  - Response length enforced via prompt (see utils/prompts.js)
  */
 
-import { getOrCreateConversation, updateConversation, getSettingCached } from './d1.js';
+import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId } from './d1.js';
 import { getAIReply } from './groq.js';
 import { searchProducts } from './productSearch.js';
 import { saveOrder } from './orderService.js';
@@ -84,7 +84,7 @@ export async function handleMessage(event) {
       ];
       if (cancelWords.some(w => lowerMsg.includes(w))) {
         stateUpdate = { state: 'GREETING', pending_product_name: null, pending_product_price: null, pending_variant: null, order_name: null, order_address: null };
-        reply = 'ঠিক আছে, অর্ডার বাতিল করা হয়েছে। 🙏 অন্য কিছু দেখতে চাইলে বলুন!';
+        reply = 'ঠিক আছে, অর্ডার বাতিল করা হয়েছে। অন্য কিছু দেখতে চাইলে বলুন।';
         break;
       }
 
@@ -111,7 +111,7 @@ export async function handleMessage(event) {
 
       if (recentFails >= 3) {
         stateUpdate = { state: 'GREETING', pending_product_name: null, pending_product_price: null, pending_variant: null, order_name: null, order_address: null };
-        reply = 'মনে হচ্ছে সমস্যা হচ্ছে। 🙏 অর্ডার বাতিল করা হলো — আবার যেকোনো সময় অর্ডার দিতে পারবেন!';
+        reply = 'মনে হচ্ছে সমস্যা হচ্ছে। অর্ডার বাতিল করা হলো — আবার যেকোনো সময় অর্ডার দিতে পারবেন।';
         break;
       }
 
@@ -170,14 +170,14 @@ export async function handleMessage(event) {
 
       const total = (conversation.pending_product_price ?? 0) + 80;
       reply =
-        `✅ অর্ডার কনফার্ম!\n\n` +
-        `👤 ${conversation.order_name}\n` +
-        `📦 ${conversation.pending_product_name}${conversation.pending_variant ? ` (${conversation.pending_variant})` : ''}\n` +
-        `📍 ${conversation.order_address}\n` +
-        `📞 ${phone}\n` +
-        `💰 পণ্য: ${conversation.pending_product_price} টাকা + ডেলিভারি: ৮০ টাকা = মোট ${total} টাকা\n\n` +
+        `অর্ডার কনফার্ম!\n\n` +
+        `নাম: ${conversation.order_name}\n` +
+        `পণ্য: ${conversation.pending_product_name}${conversation.pending_variant ? ` (${conversation.pending_variant})` : ''}\n` +
+        `ঠিকানা: ${conversation.order_address}\n` +
+        `মোবাইল: ${phone}\n` +
+        `মোট মূল্য: পণ্য ${conversation.pending_product_price} টাকা + ডেলিভারি ৮০ টাকা = মোট ${total} টাকা\n\n` +
         `বিকাশ (পার্সোনাল): *${process.env.BKASH_NUMBER}*\n` +
-        `পেমেন্ট করে "paid" লিখে জানান। ২-৩ কর্মদিবসে ডেলিভারি। 🛍️`;
+        `পেমেন্ট করে "paid" লিখে জানান। ২-৩ কর্মদিবসে ডেলিভারি করা হবে।`;
 
       await notifyModerator({
         type: 'NEW_ORDER',
@@ -200,7 +200,7 @@ export async function handleMessage(event) {
 
       if (isPaid) {
         stateUpdate = { state: 'GREETING' }; // reset after payment confirmed
-        reply = 'ধন্যবাদ! 🙏 পেমেন্ট কনফার্ম হলেই শিপমেন্ট শুরু হবে।';
+        reply = 'ধন্যবাদ! পেমেন্ট কনফার্ম হলেই শিপমেন্ট শুরু হবে।';
         await notifyModerator({
           type: 'PAYMENT_CLAIMED',
           senderId,
@@ -237,12 +237,32 @@ export async function handleMessage(event) {
       products = await searchProducts(messageText, imageUrl);
     }
 
+    // Fetch previous orders to customize returning customer vibe
+    const pastOrders = await getOrdersBySenderId(senderId, 3);
+    let customerProfile = { isReturning: false };
+    if (pastOrders && pastOrders.length > 0) {
+      const lastOrder = pastOrders[0];
+      customerProfile = {
+        isReturning: true,
+        name: lastOrder.customer_name,
+        lastProduct: lastOrder.product_name + (lastOrder.variant ? ` (${lastOrder.variant})` : ''),
+        lastAddress: lastOrder.customer_address,
+        lastPhone: lastOrder.customer_phone,
+      };
+    } else if (conversation.order_name) {
+      customerProfile = {
+        isReturning: false,
+        name: conversation.order_name
+      };
+    }
+
     const context = {
       state: conversation.state,
       history: conversation.message_history ?? [],
       products,
       imageUrl,
       pendingProduct: conversation.pending_product_name,
+      customerProfile,
     };
 
     const systemPrompt = buildSystemPrompt(context);
@@ -298,7 +318,13 @@ export async function handleMessage(event) {
 
   // ── 9. Send reply ────────────────────────────────────────────────────────────
   await sendTypingIndicator(senderId, false);
-  await sendMessage(senderId, reply);
+  await sendMessage(senderId, stripEmojis(reply));
+}
+
+function stripEmojis(text) {
+  if (!text) return text;
+  // Strips standard emojis, symbols, and pictographs
+  return text.replace(/[\u{1F300}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{1F191}-\u{1F251}\u{1F680}-\u{1F6FF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{2702}-\u{27B0}\u{2190}-\u{21FF}]/gu, '').trim();
 }
 
 async function triggerHandoff(senderId, conversation, reason) {
@@ -310,7 +336,7 @@ async function triggerHandoff(senderId, conversation, reason) {
 
   await sendMessage(
     senderId,
-    'একটু অপেক্ষা করুন। 🙏 আমাদের টিম এখনই আপনার সাথে যোগাযোগ করবে।'
+    'একটু অপেক্ষা করুন। আমাদের টিম এখনই আপনার সাথে যোগাযোগ করবে।'
   );
 
   await notifyModerator({

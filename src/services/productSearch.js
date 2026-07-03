@@ -13,6 +13,7 @@
  */
 
 import { searchProductsByText } from '../db/tidb.js';
+import { describeImage } from './groq.js';
 
 /**
  * @param {string} messageText
@@ -20,25 +21,56 @@ import { searchProductsByText } from '../db/tidb.js';
  * @returns {Promise<Array>}
  */
 export async function searchProducts(messageText, imageUrl) {
-  // If there's text, search by text first
+  const searchQueries = [];
+
   if (messageText?.trim()) {
-    // Strip filler words so "এই শাড়িটার দাম কত" → "শাড়ি"
-    const fillerWords = /\b(price|koto|dam|ki|ta|er|ei|the|what|is|কত|আছে|দাম|এই|টার|কি|কী|আপু|ভাইয়া)\b/gi;
-    const cleaned = messageText.replace(fillerWords, '').trim();
-
-    const query = cleaned.length >= 2 ? cleaned : messageText;
-    const results = await searchProductsByText(query, 6);
-
-    // If cleaned query returned nothing, try full original text
-    if (results.length === 0 && cleaned !== messageText) {
-      return searchProductsByText(messageText, 6);
-    }
-
-    return results;
+    searchQueries.push(messageText);
   }
 
-  // Image only, no text — return empty.
-  // messageHandler/AI will ask "কী ধরনের পণ্য খুঁজছেন?"
-  // This avoids dumping 80 products into the AI prompt unnecessarily.
-  return [];
+  if (imageUrl) {
+    try {
+      console.log(`📸 [Product Search] Analyzing image attachment: ${imageUrl}`);
+      const imageKeywords = await describeImage(imageUrl);
+      if (imageKeywords && imageKeywords.trim().length >= 2) {
+        searchQueries.push(imageKeywords);
+      }
+    } catch (e) {
+      console.error('Failed to describe image during search:', e.message);
+    }
+  }
+
+  if (searchQueries.length === 0) {
+    return [];
+  }
+
+  let allResults = [];
+  const fillerWords = /\b(price|koto|dam|ki|ta|er|ei|the|what|is|কত|আছে|দাম|এই|টার|কি|কী|আপু|ভাইয়া)\b/gi;
+
+  for (const q of searchQueries) {
+    const cleaned = q.replace(fillerWords, '').trim();
+    const query = cleaned.length >= 2 ? cleaned : q;
+    
+    console.log(`🔍 [Product Search] Searching DB for query: "${query}"`);
+    const results = await searchProductsByText(query, 5);
+    allResults = [...allResults, ...results];
+
+    // If cleaned query returned nothing, try full original text
+    if (results.length === 0 && cleaned !== q) {
+      const fallbackResults = await searchProductsByText(q, 5);
+      allResults = [...allResults, ...fallbackResults];
+    }
+  }
+
+  // Deduplicate products by id
+  const seenIds = new Set();
+  const uniqueProducts = [];
+  for (const product of allResults) {
+    if (!seenIds.has(product.id)) {
+      seenIds.add(product.id);
+      uniqueProducts.push(product);
+    }
+  }
+
+  console.log(`🎯 [Product Search] Found ${uniqueProducts.length} unique products matching queries.`);
+  return uniqueProducts.slice(0, 6);
 }

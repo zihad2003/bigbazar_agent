@@ -212,3 +212,12 @@ export async function updateOrderStatus(id, status) {
     [status, id]
   );
 }
+
+export async function getOrdersBySenderId(senderId, limit = 5) {
+  const result = await executeQuery(
+    'SELECT * FROM orders WHERE sender_id = ? ORDER BY id DESC LIMIT ?',
+    [senderId, limit]
+  );
+  return result?.results || [];
+}
+

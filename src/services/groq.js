@@ -16,7 +16,68 @@ function getGroq() {
   return groqClient;
 }
 
-const MODEL = 'qwen/qwen3.6-27b';
+const PRIMARY_MODEL = 'llama-3.2-90b-vision-preview';
+const FALLBACK_MODEL = 'llama-3.2-11b-vision-preview';
+
+/**
+ * Helper to call Groq completions with 90B -> 11B fallback.
+ */
+async function callGroqWithFallback(messages, maxTokens = 2048, temperature = 0.2) {
+  const groq = getGroq();
+  try {
+    console.log(`🤖 [Groq API] Calling primary model: ${PRIMARY_MODEL}`);
+    return await groq.chat.completions.create({
+      model: PRIMARY_MODEL,
+      max_tokens: maxTokens,
+      messages,
+      temperature,
+    });
+  } catch (err) {
+    console.warn(`⚠️ [Groq API] Primary model ${PRIMARY_MODEL} failed, falling back to ${FALLBACK_MODEL}. Error:`, err.message);
+    return await groq.chat.completions.create({
+      model: FALLBACK_MODEL,
+      max_tokens: maxTokens,
+      messages,
+      temperature,
+    });
+  }
+}
+
+/**
+ * Vision helper to describe an image and get text keywords for product search.
+ *
+ * @param {string} imageUrl
+ * @returns {Promise<string>} search keywords (e.g. "blue kurti", "red katan saree")
+ */
+export async function describeImage(imageUrl) {
+  if (!imageUrl) return '';
+
+  const imageBlock = await fetchImageAsBase64(imageUrl);
+  if (!imageBlock) return '';
+
+  const messages = [
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: 'Analyze the product in this image. Identify the clothing type, color, and pattern. Output only a 2-3 word search query in English or Bengali (e.g. "blue kurti", "red saree", "পাঞ্জাবি") that can be used to search this item in a product database. Do not write any other sentences or punctuation. Keep it extremely brief.',
+        },
+        imageBlock
+      ]
+    }
+  ];
+
+  try {
+    const response = await callGroqWithFallback(messages, 100, 0.1);
+    const keywords = (response.choices[0]?.message?.content || '').trim().replace(/[".']/g, '');
+    console.log(`📸 [Vision Image Search] Analyzed image. Keywords: "${keywords}"`);
+    return keywords;
+  } catch (err) {
+    console.error('❌ [Vision Image Search] Image analysis failed:', err.message);
+    return '';
+  }
+}
 
 /**
  * @param {string} systemPrompt - built by utils/prompts.js with live product context
@@ -53,14 +114,7 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
 
   messages.push({ role: 'user', content });
 
-  const groq = getGroq();
-  const response = await groq.chat.completions.create({
-    model: MODEL,
-    max_tokens: 2048,
-    messages,
-    temperature: 0.2,
-  });
-
+  const response = await callGroqWithFallback(messages, 2048, 0.2);
   const rawText = response.choices[0]?.message?.content || '';
 
   return parseAIResponse(rawText);
