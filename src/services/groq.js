@@ -16,8 +16,8 @@ function getGroq() {
   return groqClient;
 }
 
-const PRIMARY_MODEL = 'llama-3.3-70b-versatile';
-const FALLBACK_MODEL = 'llama-3.1-8b-instant';
+const PRIMARY_MODEL = process.env.GROQ_PRIMARY_MODEL || 'llama-3.3-70b-versatile';
+const FALLBACK_MODEL = process.env.GROQ_FALLBACK_MODEL || 'llama-3.1-8b-instant';
 
 /**
  * Helper to call Groq completions with Llama 3.3 -> 3.1 fallback.
