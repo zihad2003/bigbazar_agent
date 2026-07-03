@@ -16,11 +16,11 @@ function getGroq() {
   return groqClient;
 }
 
-const PRIMARY_MODEL = 'llama-3.2-90b-vision-preview';
-const FALLBACK_MODEL = 'llama-3.2-11b-vision-preview';
+const PRIMARY_MODEL = 'llama-3.3-70b-versatile';
+const FALLBACK_MODEL = 'llama-3.1-8b-instant';
 
 /**
- * Helper to call Groq completions with 90B -> 11B fallback.
+ * Helper to call Groq completions with Llama 3.3 -> 3.1 fallback.
  */
 async function callGroqWithFallback(messages, maxTokens = 2048, temperature = 0.2) {
   const groq = getGroq();
@@ -45,38 +45,15 @@ async function callGroqWithFallback(messages, maxTokens = 2048, temperature = 0.
 
 /**
  * Vision helper to describe an image and get text keywords for product search.
+ * Since Groq has decommissioned Llama 3.2 Vision models, this currently returns empty to prevent API errors.
  *
  * @param {string} imageUrl
  * @returns {Promise<string>} search keywords (e.g. "blue kurti", "red katan saree")
  */
 export async function describeImage(imageUrl) {
-  if (!imageUrl) return '';
-
-  const imageBlock = await fetchImageAsBase64(imageUrl);
-  if (!imageBlock) return '';
-
-  const messages = [
-    {
-      role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: 'Analyze the product in this image. Identify the clothing type, color, and pattern. Output only a 2-3 word search query in English or Bengali (e.g. "blue kurti", "red saree", "পাঞ্জাবি") that can be used to search this item in a product database. Do not write any other sentences or punctuation. Keep it extremely brief.',
-        },
-        imageBlock
-      ]
-    }
-  ];
-
-  try {
-    const response = await callGroqWithFallback(messages, 100, 0.1);
-    const keywords = (response.choices[0]?.message?.content || '').trim().replace(/[".']/g, '');
-    console.log(`📸 [Vision Image Search] Analyzed image. Keywords: "${keywords}"`);
-    return keywords;
-  } catch (err) {
-    console.error('❌ [Vision Image Search] Image analysis failed:', err.message);
-    return '';
-  }
+  // Graceful fallback: return empty to bypass vision description since Groq lacks vision support.
+  console.log(`📸 [Vision Image Search] Groq vision models decommissioned. Skipping image analysis for URL: ${imageUrl}`);
+  return '';
 }
 
 /**
@@ -99,12 +76,14 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
     });
   }
 
-  // Construct current user content block (including vision data if image is attached)
+  // Construct current user content block (text-only to prevent API failures on text-only models)
   const content = [];
 
   if (imageUrl) {
-    const imageBlock = await fetchImageAsBase64(imageUrl);
-    if (imageBlock) content.push(imageBlock);
+    content.push({
+      type: 'text',
+      text: `[কাস্টমার একটি ছবি পাঠিয়েছেন: ${imageUrl}]`
+    });
   }
 
   content.push({
