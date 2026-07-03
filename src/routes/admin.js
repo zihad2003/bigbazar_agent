@@ -10,7 +10,7 @@
 
 import { Router } from 'express';
 import crypto from 'crypto';
-import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus } from '../services/d1.js';
+import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus, saveTrainingExample, getTrainingExamples, deleteTrainingExample } from '../services/d1.js';
 
 export const adminRouter = Router();
 
@@ -111,6 +111,38 @@ adminRouter.post('/orders/:id/status', async (req, res) => {
   try {
     const { status } = req.body;
     await updateOrderStatus(req.params.id, status);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Training Examples (Human-in-the-Loop) ─────────────────────────────────────
+adminRouter.get('/training', async (_req, res) => {
+  try {
+    const data = await getTrainingExamples(100);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.post('/training', async (req, res) => {
+  try {
+    const { customerMessage, wrongBotReply, correctReply, context } = req.body;
+    if (!customerMessage || !correctReply) {
+      return res.status(400).json({ error: 'customerMessage and correctReply are required' });
+    }
+    await saveTrainingExample({ customerMessage, wrongBotReply, correctReply, context });
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.delete('/training/:id', async (req, res) => {
+  try {
+    await deleteTrainingExample(req.params.id);
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });

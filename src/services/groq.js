@@ -22,7 +22,7 @@ const FALLBACK_MODEL = 'llama-3.1-8b-instant';
 /**
  * Helper to call Groq completions with Llama 3.3 -> 3.1 fallback.
  */
-async function callGroqWithFallback(messages, maxTokens = 2048, temperature = 0.2) {
+async function callGroqWithFallback(messages, maxTokens = 2048, temperature = 0.5) {
   const groq = getGroq();
   try {
     console.log(`🤖 [Groq API] Calling primary model: ${PRIMARY_MODEL}`);
@@ -93,7 +93,7 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
 
   messages.push({ role: 'user', content });
 
-  const response = await callGroqWithFallback(messages, 2048, 0.2);
+  const response = await callGroqWithFallback(messages, 1024, 0.5);
   const rawText = response.choices[0]?.message?.content || '';
 
   return parseAIResponse(rawText);

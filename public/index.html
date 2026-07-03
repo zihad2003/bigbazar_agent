@@ -498,6 +498,7 @@
       <div class="tabs">
         <button class="tab active" data-tab="convos">Conversations</button>
         <button class="tab" data-tab="orders">Orders</button>
+        <button class="tab" data-tab="training">✏️ Training</button>
       </div>
 
       <!-- Conversations tab -->
@@ -543,6 +544,29 @@
           </table>
         </div>
       </div>
+
+      <!-- Training tab -->
+      <div class="tab-body" id="tab-training">
+        <div class="panel-header" style="border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); display:flex; justify-content:space-between; align-items:center; padding: 12px 20px;">
+          <span style="font-size:13px; color:var(--text); font-weight:500;">শেখানো উদাহরণ — Bot এর সঠিক উত্তর শেখার জন্য</span>
+          <span style="font-size:12px; color:var(--muted);">Chat history থেকে ✏️ Teach বাটনে ক্লিক করে শেখান</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Customer মেসেজ</th>
+                <th style="color:var(--red);">Bot এর ভুল উত্তর</th>
+                <th style="color:var(--green);">সঠিক উত্তর</th>
+                <th>Delete</th>
+              </tr>
+            </thead>
+            <tbody id="tblTraining">
+              <tr><td colspan="4" class="empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
   </main>
@@ -571,6 +595,34 @@
     <div class="chat-log" id="chatLog"></div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('overlayHistory')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Teach modal -->
+<div class="overlay" id="overlayTeach">
+  <div class="modal" style="width: min(560px,94vw);">
+    <h2>✏️ Bot কে শেখাও</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">কাস্টমারের মেসেজে bot ভুল উত্তর দিয়েছে — সঠিক উত্তরটি লিখুন। Bot পরের বার শিখে নেবে।</p>
+
+    <div style="margin-bottom:14px;">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Customer এর মেসেজ:</div>
+      <div id="teachCustomer" style="background:var(--surface-2);border-radius:8px;padding:10px 14px;font-size:13px;border:1px solid var(--border);"></div>
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <div style="font-size:12px;color:var(--red);margin-bottom:4px;">Bot এর ভুল উত্তর:</div>
+      <div id="teachWrong" style="background:rgba(239,68,68,0.08);border-radius:8px;padding:10px 14px;font-size:13px;border:1px solid rgba(239,68,68,0.25);color:var(--muted-2);"></div>
+    </div>
+
+    <div style="margin-bottom:20px;">
+      <div style="font-size:12px;color:var(--green);margin-bottom:4px;">সঠিক উত্তর লিখুন:</div>
+      <textarea id="teachCorrect" rows="3" placeholder="এখানে সঠিক উত্তরটি লিখুন..." style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--text);resize:vertical;font-family:inherit;"></textarea>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('overlayTeach')">বাতিল</button>
+      <button class="btn btn-primary" onclick="saveTeach()">Bot কে শেখাও</button>
     </div>
   </div>
 </div>
@@ -633,6 +685,7 @@
   function switchTab(id) {
     document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === id));
     document.querySelectorAll('.tab-body').forEach(el => el.classList.toggle('active', el.id === `tab-${id}`));
+    if (id === 'training') loadTraining();
   }
 
   // ── Refresh ───────────────────────────────────────────────────────────────
@@ -728,11 +781,14 @@
     if (!history.length) {
       log.innerHTML = `<div class="empty">No messages stored yet.</div>`;
     } else {
-      log.innerHTML = history.map(m => {
+      log.innerHTML = history.map((m, i) => {
         const time = m.ts ? new Date(m.ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '';
+        const teachBtn = m.role === 'assistant'
+          ? `<button class="btn btn-sm" style="font-size:10px;padding:2px 7px;margin-top:4px;background:rgba(99,102,241,0.15);color:var(--accent);border-color:rgba(99,102,241,0.3);" onclick="openTeach('${e(c.sender_id)}', ${i})">✏️ Teach</button>`
+          : '';
         return `<div class="bubble ${m.role}">
           ${e(m.content)}
-          <div class="bubble-time">${time}</div>
+          <div class="bubble-time">${time} ${teachBtn}</div>
         </div>`;
       }).join('');
       log.scrollTop = log.scrollHeight;
@@ -807,6 +863,64 @@
     loadOrders();
   }
 
+  // ── Training (Human-in-the-Loop) ──────────────────────────────────────────
+  let _teachData = {};
+
+  function openTeach(senderId, msgIndex) {
+    const c = conversations.find(x => x.sender_id === senderId);
+    if (!c) return;
+    const history = c.message_history || [];
+    const botMsg = history[msgIndex];
+    const prevMsg = history[msgIndex - 1];
+    if (!botMsg) return;
+
+    _teachData = {
+      customerMessage: prevMsg?.content || '',
+      wrongBotReply: botMsg.content,
+    };
+
+    document.getElementById('teachCustomer').textContent = _teachData.customerMessage || '(no preceding message)';
+    document.getElementById('teachWrong').textContent = _teachData.wrongBotReply;
+    document.getElementById('teachCorrect').value = '';
+    document.getElementById('overlayTeach').classList.add('open');
+  }
+
+  async function saveTeach() {
+    const correctReply = document.getElementById('teachCorrect').value.trim();
+    if (!correctReply) { toast('সঠিক উত্তর লিখুন', 'error'); return; }
+    await api('/admin/training', 'POST', {
+      customerMessage: _teachData.customerMessage,
+      wrongBotReply: _teachData.wrongBotReply,
+      correctReply,
+    });
+    closeModal('overlayTeach');
+    toast('Bot কে শেখানো হয়েছে!', 'success');
+    loadTraining();
+  }
+
+  async function loadTraining() {
+    const tbody = document.getElementById('tblTraining');
+    if (!tbody) return;
+    const examples = await api('/admin/training');
+    if (!examples || !examples.length) {
+      tbody.innerHTML = `<tr><td colspan="4" class="empty">এখনো কোনো শেখানো উদাহরণ নেই। Chat history থেকে ✏️ Teach বাটনে ক্লিক করুন।</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = examples.map(ex => `<tr>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e(ex.customer_message)}">${e(ex.customer_message)}</td>
+      <td style="color:var(--red);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e(ex.wrong_bot_reply||'')}">  ${e(ex.wrong_bot_reply || '—')}</td>
+      <td style="color:var(--green);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e(ex.correct_reply)}">${e(ex.correct_reply)}</td>
+      <td><button class="btn btn-sm btn-red" onclick="deleteTeach(${ex.id})">Delete</button></td>
+    </tr>`).join('');
+  }
+
+  async function deleteTeach(id) {
+    if (!confirm('এই example মুছে ফেলবেন?')) return;
+    await api(`/admin/training/${id}`, 'DELETE');
+    toast('Deleted', 'success');
+    loadTraining();
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
@@ -840,6 +954,9 @@
     el.className = `toast ${type} show`;
     setTimeout(() => el.classList.remove('show'), 2800);
   }
+
+  // Auto-load training on page load
+  document.addEventListener('DOMContentLoaded', () => { loadTraining(); });
 </script>
 
 </body>

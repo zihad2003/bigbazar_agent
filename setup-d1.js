@@ -47,6 +47,23 @@ CREATE TABLE IF NOT EXISTS orders (
 
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status);
 CREATE INDEX IF NOT EXISTS idx_orders_created ON orders (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS training_examples (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  customer_message  TEXT NOT NULL,
+  wrong_bot_reply   TEXT,
+  correct_reply     TEXT NOT NULL,
+  context           TEXT,
+  created_at        TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_created ON training_examples (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
 `;
 
 async function executeSQL(sql) {

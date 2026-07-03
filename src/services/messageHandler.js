@@ -9,7 +9,7 @@
  *  - Response length enforced via prompt (see utils/prompts.js)
  */
 
-import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId } from './d1.js';
+import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId, getRelevantTrainingExamples } from './d1.js';
 import { getAIReply } from './groq.js';
 import { searchProducts } from './productSearch.js';
 import { saveOrder } from './orderService.js';
@@ -262,6 +262,14 @@ export async function handleMessage(event) {
       };
     }
 
+    // Fetch training examples (moderator corrections) for relevant context
+    let trainingExamples = [];
+    try {
+      trainingExamples = await getRelevantTrainingExamples(messageText, 6);
+    } catch (e) {
+      console.warn('Training examples fetch failed (table may not exist yet):', e.message);
+    }
+
     const context = {
       state: conversation.state,
       history: conversation.message_history ?? [],
@@ -269,6 +277,7 @@ export async function handleMessage(event) {
       imageUrl,
       pendingProduct: conversation.pending_product_name,
       customerProfile,
+      trainingExamples,
     };
 
     const systemPrompt = buildSystemPrompt(context);
@@ -322,7 +331,7 @@ export async function handleMessage(event) {
   const userEntry = messageText || (imageUrl ? '[ছবি পাঠিয়েছে]' : null);
 
   const newHistory = [
-    ...(conversation.message_history ?? []).slice(-8), // keep last 8 turns
+    ...(conversation.message_history ?? []).slice(-15), // keep last 15 turns
     ...(userEntry ? [{ role: 'user', content: userEntry, ts: Date.now() }] : []),
     { role: 'assistant', content: reply, ts: Date.now() },
   ];

@@ -221,3 +221,50 @@ export async function getOrdersBySenderId(senderId, limit = 5) {
   return result?.results || [];
 }
 
+// ── Training Examples (Human-in-the-Loop) ────────────────────────────────────
+
+export async function saveTrainingExample({ customerMessage, wrongBotReply, correctReply, context }) {
+  await executeQuery(
+    `INSERT INTO training_examples (customer_message, wrong_bot_reply, correct_reply, context, created_at)
+     VALUES (?, ?, ?, ?, datetime('now'))`,
+    [customerMessage, wrongBotReply || null, correctReply, context || null]
+  );
+}
+
+export async function getTrainingExamples(limit = 50) {
+  const result = await executeQuery(
+    'SELECT * FROM training_examples ORDER BY created_at DESC LIMIT ?',
+    [limit]
+  );
+  return result?.results || [];
+}
+
+/**
+ * Get the most relevant training examples for the current message.
+ * Simple keyword overlap approach — no vector DB needed.
+ */
+export async function getRelevantTrainingExamples(messageText, limit = 8) {
+  // Fetch recent corrections and use them all (for now — simple and effective)
+  const result = await executeQuery(
+    'SELECT customer_message, correct_reply FROM training_examples ORDER BY created_at DESC LIMIT ?',
+    [Math.min(limit * 3, 30)]
+  );
+  const all = result?.results || [];
+
+  if (!messageText || all.length === 0) return all.slice(0, limit);
+
+  // Score by word overlap
+  const msgWords = new Set(messageText.toLowerCase().split(/\s+/));
+  const scored = all.map(ex => {
+    const exWords = ex.customer_message.toLowerCase().split(/\s+/);
+    const overlap = exWords.filter(w => msgWords.has(w)).length;
+    return { ...ex, score: overlap };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, limit);
+}
+
+export async function deleteTrainingExample(id) {
+  await executeQuery('DELETE FROM training_examples WHERE id = ?', [id]);
+}
