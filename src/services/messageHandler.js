@@ -95,9 +95,15 @@ export async function handleMessage(event) {
         break;
       }
 
-      // Detect non-order questions (delivery, payment, etc.) — route to AI
-      const questionWords = ['kobe', 'কবে', 'কখন', 'when', 'কেন', 'why', 'কিভাবে', 'how', 'ki hobe', 'কী হবে', 'pabo', 'পাবো', 'delivery', 'ডেলিভারি'];
+      // Detect questions, orders, and criticisms during collection states — route to AI
+      const questionWords = [
+        'kobe', 'কবে', 'কখন', 'when', 'কেন', 'why', 'কিভাবে', 'how', 'ki hobe', 'কী হবে',
+        'pabo', 'পাবো', 'delivery', 'ডেলিভারি', 'ki', 'কী', 'কি', 'order', 'অর্ডার',
+        'cai', 'চাই', 'dam', 'price', 'দাম', 'koto', 'কত', 'কোথায়', 'kothay', 'পণ্য',
+        'প্রোডাক্ট', 'product', 'পছন্দ'
+      ];
       if (questionWords.some(w => lowerMsg.includes(w))) {
+        console.log(`⚠️ [Order Flow Escape] User sent potential query/criticism during collect state: "${messageText}". Resetting to GREETING.`);
         stateUpdate = { state: 'GREETING', pending_product_name: null, pending_product_price: null, pending_variant: null, order_name: null, order_address: null };
         needsAI = true;
         break;
@@ -293,7 +299,18 @@ export async function handleMessage(event) {
         }
       }
     } else if (aiResult.intent === 'START_ORDER') {
-      stateUpdate = { state: 'COLLECT_NAME' };
+      if (conversation.pending_product_name || aiResult.productName) {
+        stateUpdate = {
+          state: 'COLLECT_NAME',
+          // If the AI found a productName in this very turn, persist it
+          pending_product_name: conversation.pending_product_name || aiResult.productName,
+          pending_product_price: conversation.pending_product_price || aiResult.productPrice || null,
+          pending_variant: conversation.pending_variant || aiResult.variant || null,
+        };
+      } else {
+        stateUpdate = { state: 'GREETING' };
+        reply = 'জি, আপনি কোন পণ্যটি অর্ডার করতে চান অনুগ্রহ করে বলবেন? আমাদের কালেকশনে চমৎকার শাড়ি, থ্রি-পিস ও কুর্তি রয়েছে।';
+      }
     } else if (aiResult.intent === 'HANDOFF') {
       await triggerHandoff(senderId, conversation, 'AI could not resolve query');
       return;
