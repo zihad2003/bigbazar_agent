@@ -151,10 +151,11 @@ export function buildSystemPrompt({ products = [], pendingProduct, bkashNumber =
 ${exampleLines}`;
   }
 
-  // Only inject product context if we actually have products
+  // Always inject product context so the AI knows if the catalog search was run or returned empty
   const storefrontUrl = process.env.STOREFRONT_URL || 'https://bigbazarbariarhat.com';
+  let productLines = '[কোনো মিল পাওয়া যায়নি / ক্যাটালগ খালি]';
   if (products.length > 0) {
-    const productLines = products
+    productLines = products
       .map(p => {
         const stock = p.stock > 0 ? `আছে (${p.stock}টি)` : 'নেই';
         const colors = p.colors ? ` | রং: ${p.colors}` : '';
@@ -164,12 +165,16 @@ ${exampleLines}`;
         return `• ${p.name} — ${p.price} টাকা | স্টক: ${stock}${colors}${sizes}${img}${link}`;
       })
       .join('\n');
+  }
 
-    prompt += `\n\n═══════════════════════════════════════
+  prompt += `\n\n═══════════════════════════════════════
 ✦ PRODUCT CONTEXT (ডেটাবেজ থেকে লাইভ)
 ═══════════════════════════════════════
-${productLines}`;
-  }
+${productLines}
+
+⚠️ নির্দেশাবলী (অতি গুরুত্বপূর্ণ):
+- যদি PRODUCT CONTEXT খালি থাকে বা [কোনো মিল পাওয়া যায়নি / ক্যাটালগ খালি] দেখায়, এর মানে হলো কাঙ্ক্ষিত পণ্যটি ডেটাবেজে নেই বা আমাদের স্টকে শেষ। তখন সরাসরি কাস্টমারকে বলবে যে এই পণ্যটি আমাদের কাছে এখন নেই। কোনো কাল্পনিক প্রোডাক্ট তৈরি করবে না এবং কোনো দাম বাড়িয়ে বলবে না।
+- নিজে থেকে কোনো কাল্পনিক বা ভুল লিংক/ইউআরএল তৈরি করবে না। শুধুমাত্র PRODUCT CONTEXT এ থাকা পণ্যের তথ্য, দাম, এবং লিংক হুবহু ব্যবহার করবে। যদি কোনো লিংক না থাকে, তবে কোনো লিংক দিবে না।`;
 
   // Remind AI of pending product if in mid-conversation
   if (pendingProduct) {

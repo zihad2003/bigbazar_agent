@@ -58,7 +58,7 @@ const PRODUCT_KEYWORDS = [
   'স্টক', 'stock', 'available',
   'নতুন', 'latest', 'new arrival',
   'সাইজ', 'size', 'কালার', 'color', 'colour', 'রং',
-  'ডিজাইন', 'design', 'ছবি পাঠান',
+  'ডিজাইন', 'design', 'ছবি পাঠান', 'chobi', 'cobi', 'chobi dekhi', 'cobi dekhi', 'pic', 'pic dekhi', 'picture', 'photo', 'ছবি', 'পিক', 'পিকচার', 'ফটো',
   'order', 'অর্ডার', 'অর্ডার করা', 'কিনতে', 'নিতে',
   'কোনটা ভালো', 'কোনটা নেবো',
 ];

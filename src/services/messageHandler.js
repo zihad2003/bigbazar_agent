@@ -240,7 +240,7 @@ export async function handleMessage(event) {
     // This avoids querying TiDB for greetings, thanks, and other non-product messages
     let products = [];
     if (imageUrl || isProductQuery(messageText)) {
-      products = await searchProducts(messageText, imageUrl);
+      products = await searchProducts(messageText, imageUrl, conversation.pending_product_name);
     }
 
     // Fetch previous orders to customize returning customer vibe
