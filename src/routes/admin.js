@@ -10,7 +10,7 @@
 
 import { Router } from 'express';
 import crypto from 'crypto';
-import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus, saveTrainingExample, getTrainingExamples, deleteTrainingExample } from '../services/d1.js';
+import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus, saveTrainingExample, getTrainingExamples, deleteTrainingExample, getKnowledgeEntries, saveKnowledgeEntry, updateKnowledgeEntry, deleteKnowledgeEntry } from '../services/d1.js';
 
 export const adminRouter = Router();
 
@@ -143,6 +143,48 @@ adminRouter.post('/training', async (req, res) => {
 adminRouter.delete('/training/:id', async (req, res) => {
   try {
     await deleteTrainingExample(req.params.id);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Knowledge Base ────────────────────────────────────────────────────────────
+adminRouter.get('/knowledge', async (_req, res) => {
+  try {
+    const data = await getKnowledgeEntries(100);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.post('/knowledge', async (req, res) => {
+  try {
+    const { category, title, content, is_active, priority } = req.body;
+    if (!category || !title || !content) {
+      return res.status(400).json({ error: 'category, title, and content are required' });
+    }
+    await saveKnowledgeEntry({ category, title, content, is_active, priority });
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.put('/knowledge/:id', async (req, res) => {
+  try {
+    const { category, title, content, is_active, priority } = req.body;
+    await updateKnowledgeEntry(req.params.id, { category, title, content, is_active, priority });
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.delete('/knowledge/:id', async (req, res) => {
+  try {
+    await deleteKnowledgeEntry(req.params.id);
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });

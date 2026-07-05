@@ -24,16 +24,21 @@ export async function sendMessage(recipientId, text) {
  */
 export async function sendImageMessage(recipientId, imageUrl) {
   if (!imageUrl) return;
-  await callSendAPI({
-    recipient: { id: recipientId },
-    message: {
-      attachment: {
-        type: 'image',
-        payload: { url: imageUrl, is_reusable: true },
+  try {
+    await callSendAPI({
+      recipient: { id: recipientId },
+      message: {
+        attachment: {
+          type: 'image',
+          payload: { url: imageUrl, is_reusable: true },
+        },
       },
-    },
-    messaging_type: 'RESPONSE',
-  });
+      messaging_type: 'RESPONSE',
+    });
+  } catch (err) {
+    console.warn(`⚠️ [Messenger API] Failed to send image attachment, falling back to text link. Error:`, err.message);
+    await sendMessage(recipientId, `পণ্যটির ছবি লিংক: ${imageUrl}`);
+  }
 }
 
 export async function sendTypingIndicator(recipientId, on) {

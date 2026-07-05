@@ -499,6 +499,7 @@
         <button class="tab active" data-tab="convos">Conversations</button>
         <button class="tab" data-tab="orders">Orders</button>
         <button class="tab" data-tab="training">✏️ Training</button>
+        <button class="tab" data-tab="knowledge">📚 Knowledge Base</button>
       </div>
 
       <!-- Conversations tab -->
@@ -563,6 +564,63 @@
             </thead>
             <tbody id="tblTraining">
               <tr><td colspan="4" class="empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Knowledge Base tab -->
+      <div class="tab-body" id="tab-knowledge">
+        <div style="padding: 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; background: var(--surface);">
+          <input type="hidden" id="kbId" value="">
+          <div class="field" style="margin:0;">
+            <label style="font-size:11px;">Category</label>
+            <select id="kbCategory" style="width:100%; height:36px; padding:0 10px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:inherit;">
+              <option value="delivery">🚚 Delivery Rules</option>
+              <option value="payment">💳 Payment Rules</option>
+              <option value="shop_info">📍 Shop Info</option>
+              <option value="policy">📝 Shop Policies & Rules</option>
+              <option value="product_update">🛍️ Daily Product updates</option>
+              <option value="greeting">👋 Greetings Style</option>
+              <option value="custom">⚙️ Custom Rule</option>
+            </select>
+          </div>
+          <div class="field" style="margin:0;">
+            <label style="font-size:11px;">Title / Rule Name</label>
+            <input type="text" id="kbTitle" placeholder="e.g. Delivery Area & Charges" style="height:36px; padding:0 10px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; color:var(--text); width:100%;">
+          </div>
+          <div class="field" style="margin:0;">
+            <label style="font-size:11px;">Priority (Higher = run first)</label>
+            <input type="number" id="kbPriority" value="0" style="height:36px; padding:0 10px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; color:var(--text); width:100%;">
+          </div>
+          <div class="field" style="margin:0; display:flex; align-items:center; gap:8px; height:54px;">
+            <input type="checkbox" id="kbActive" checked style="width:18px; height:18px; cursor:pointer;">
+            <label for="kbActive" style="margin:0; cursor:pointer;">Active</label>
+          </div>
+          <div class="field" style="grid-column: span 2; margin:0;">
+            <label style="font-size:11px;">Rule content / Business Policy</label>
+            <textarea id="kbContent" rows="2" placeholder="Write the exact rule details..." style="width:100%; padding:8px 10px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:inherit; resize:vertical;"></textarea>
+          </div>
+          <div style="display:flex; align-items:flex-end; gap:8px;">
+            <button class="btn btn-primary" id="btnSaveKb" onclick="saveKbEntry()" style="height:36px; padding:0 18px;">➕ Add Rule</button>
+            <button class="btn btn-ghost" id="btnCancelKb" onclick="resetKbForm()" style="height:36px; display:none; padding:0 14px;">Cancel</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Title / Rule Name</th>
+                <th>Content</th>
+                <th>Priority</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="tblKnowledge">
+              <tr><td colspan="6" class="empty">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -686,6 +744,7 @@
     document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === id));
     document.querySelectorAll('.tab-body').forEach(el => el.classList.toggle('active', el.id === `tab-${id}`));
     if (id === 'training') loadTraining();
+    if (id === 'knowledge') loadKnowledge();
   }
 
   // ── Refresh ───────────────────────────────────────────────────────────────
@@ -919,6 +978,120 @@
     await api(`/admin/training/${id}`, 'DELETE');
     toast('Deleted', 'success');
     loadTraining();
+  }
+
+  // ── Knowledge Base ─────────────────────────────────────────────────────────
+  let allKbEntries = [];
+
+  async function loadKnowledge() {
+    const tbody = document.getElementById('tblKnowledge');
+    if (!tbody) return;
+    try {
+      allKbEntries = await api('/admin/knowledge');
+      if (!allKbEntries || !allKbEntries.length) {
+        tbody.innerHTML = `<tr><td colspan="6" class="empty">কোনো নিয়ম বা পলিসি সেভ করা নেই। ওপরের ফর্মটি পূরণ করে নতুন নিয়ম যোগ করুন।</td></tr>`;
+        return;
+      }
+
+      const catEmojis = {
+        delivery: '🚚',
+        payment: '💳',
+        shop_info: '📍',
+        policy: '📝',
+        product_update: '🛍️',
+        greeting: '👋',
+        custom: '⚙️'
+      };
+
+      tbody.innerHTML = allKbEntries.map(k => {
+        const activeBadge = k.is_active
+          ? `<span class="badge badge-green">Active</span>`
+          : `<span class="badge badge-red">Inactive</span>`;
+        
+        return `<tr>
+          <td><span style="font-weight:600;">${catEmojis[k.category] || '⚙️'} ${e(k.category)}</span></td>
+          <td style="font-weight:500;">${e(k.title)}</td>
+          <td style="max-width:350px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${e(k.content)}">${e(k.content)}</td>
+          <td class="mono">${k.priority}</td>
+          <td>${activeBadge}</td>
+          <td>
+            <div class="action-group">
+              <button class="btn btn-sm btn-ghost" onclick="editKbEntry(${k.id})">Edit</button>
+              <button class="btn btn-sm btn-red" onclick="deleteKbEntry(${k.id})">Delete</button>
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+    } catch (err) {
+      console.error('Failed to load KB:', err);
+      tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--red);">লোড করতে ব্যর্থ হয়েছে: ${e(err.message)}</td></tr>`;
+    }
+  }
+
+  async function saveKbEntry() {
+    const id = document.getElementById('kbId').value;
+    const category = document.getElementById('kbCategory').value;
+    const title = document.getElementById('kbTitle').value.trim();
+    const content = document.getElementById('kbContent').value.trim();
+    const priority = document.getElementById('kbPriority').value;
+    const is_active = document.getElementById('kbActive').checked;
+
+    if (!title || !content) {
+      toast('Title and Content are required', 'error');
+      return;
+    }
+
+    const payload = { category, title, content, priority: Number(priority), is_active };
+
+    try {
+      if (id) {
+        await api(`/admin/knowledge/${id}`, 'PUT', payload);
+        toast('Rule updated successfully', 'success');
+      } else {
+        await api('/admin/knowledge', 'POST', payload);
+        toast('New rule added to Knowledge Base', 'success');
+      }
+      resetKbForm();
+      loadKnowledge();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  function editKbEntry(id) {
+    const entry = allKbEntries.find(k => k.id === id);
+    if (!entry) return;
+
+    document.getElementById('kbId').value = entry.id;
+    document.getElementById('kbCategory').value = entry.category;
+    document.getElementById('kbTitle').value = entry.title;
+    document.getElementById('kbContent').value = entry.content;
+    document.getElementById('kbPriority').value = entry.priority;
+    document.getElementById('kbActive').checked = entry.is_active === 1 || entry.is_active === true;
+
+    document.getElementById('btnSaveKb').textContent = '💾 Save Changes';
+    document.getElementById('btnCancelKb').style.display = 'inline-block';
+  }
+
+  async function deleteKbEntry(id) {
+    if (!confirm('এই নিয়মটি মুছে ফেলবেন? এটি মুছে দিলে AI আর এই নিয়মের সাহায্য নিয়ে উত্তর দেবে না।')) return;
+    try {
+      await api(`/admin/knowledge/${id}`, 'DELETE');
+      toast('Rule deleted', 'success');
+      loadKnowledge();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  function resetKbForm() {
+    document.getElementById('kbId').value = '';
+    document.getElementById('kbTitle').value = '';
+    document.getElementById('kbContent').value = '';
+    document.getElementById('kbPriority').value = '0';
+    document.getElementById('kbActive').checked = true;
+    document.getElementById('btnSaveKb').textContent = '➕ Add Rule';
+    document.getElementById('btnCancelKb').style.display = 'none';
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

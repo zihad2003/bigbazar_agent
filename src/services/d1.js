@@ -268,3 +268,53 @@ export async function getRelevantTrainingExamples(messageText, limit = 8) {
 export async function deleteTrainingExample(id) {
   await executeQuery('DELETE FROM training_examples WHERE id = ?', [id]);
 }
+
+// ── Knowledge Base CRUD ──────────────────────────────────────────────────────
+
+export async function getActiveKnowledgeBase() {
+  const result = await executeQuery(
+    'SELECT category, title, content FROM knowledge_base WHERE is_active = 1 ORDER BY priority DESC, id ASC'
+  );
+  return result?.results || [];
+}
+
+export async function getKnowledgeEntries(limit = 100) {
+  const result = await executeQuery(
+    'SELECT * FROM knowledge_base ORDER BY priority DESC, created_at DESC LIMIT ?',
+    [limit]
+  );
+  return result?.results || [];
+}
+
+export async function saveKnowledgeEntry({ category, title, content, is_active = 1, priority = 0 }) {
+  await executeQuery(
+    `INSERT INTO knowledge_base (category, title, content, is_active, priority, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+    [category, title, content, is_active ? 1 : 0, Number(priority)]
+  );
+}
+
+export async function updateKnowledgeEntry(id, { category, title, content, is_active, priority }) {
+  const fields = [];
+  const values = [];
+
+  if (category !== undefined) { fields.push('category = ?'); values.push(category); }
+  if (title !== undefined) { fields.push('title = ?'); values.push(title); }
+  if (content !== undefined) { fields.push('content = ?'); values.push(content); }
+  if (is_active !== undefined) { fields.push('is_active = ?'); values.push(is_active ? 1 : 0); }
+  if (priority !== undefined) { fields.push('priority = ?'); values.push(Number(priority)); }
+
+  if (fields.length === 0) return;
+
+  fields.push("updated_at = datetime('now')");
+  values.push(id);
+
+  await executeQuery(
+    `UPDATE knowledge_base SET ${fields.join(', ')} WHERE id = ?`,
+    values
+  );
+}
+
+export async function deleteKnowledgeEntry(id) {
+  await executeQuery('DELETE FROM knowledge_base WHERE id = ?', [id]);
+}

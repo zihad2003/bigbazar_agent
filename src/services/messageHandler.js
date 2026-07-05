@@ -9,7 +9,7 @@
  *  - Response length enforced via prompt (see utils/prompts.js)
  */
 
-import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId, getRelevantTrainingExamples } from './d1.js';
+import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId, getRelevantTrainingExamples, getActiveKnowledgeBase } from './d1.js';
 import { getAIReply } from './groq.js';
 import { searchProducts } from './productSearch.js';
 import { saveOrder } from './orderService.js';
@@ -174,16 +174,53 @@ export async function handleMessage(event) {
         last_order_id: order.id,
       };
 
-      const total = (conversation.pending_product_price ?? 0) + 80;
+      // Calculate delivery charge based on address
+      const addr = (conversation.order_address || '').toLowerCase();
+      let deliveryCharge = 150;
+      let deliveryZone = 'সারা বাংলাদেশ';
+
+      if (addr.includes('মিরসরাই') || addr.includes('মীরসরাই') || addr.includes('mirsharai') || addr.includes('mirsarai') || addr.includes('baraiyarhat') || addr.includes('বারইয়ারহাট')) {
+        deliveryCharge = 0;
+        deliveryZone = 'মীরসরাই (ফ্রি)';
+      } else if (addr.includes('চট্টগ্রাম') || addr.includes('chittagong') || addr.includes('ctg')) {
+        deliveryCharge = 100;
+        deliveryZone = 'চট্টগ্রাম জেলা';
+      }
+
+      const productPrice = Number(conversation.pending_product_price) || 0;
+      const total = productPrice + deliveryCharge;
+
+      // Calculate advance payment required
+      let advanceAmount = deliveryCharge;
+      let advanceNote = '';
+      if (productPrice >= 5000) {
+        advanceAmount = 1000;
+        advanceNote = '৫ হাজার টাকার বেশি অর্ডারে ১০০০ টাকা অগ্রিম পরিশোধ করতে হবে।';
+      } else if (productPrice >= 3000) {
+        advanceAmount = 500;
+        advanceNote = '৩ হাজার টাকার বেশি অর্ডারে ৫০০ টাকা অগ্রিম পরিশোধ করতে হবে।';
+      } else {
+        if (deliveryCharge > 0) {
+          advanceNote = `ডেলিভারি চার্জ (${deliveryCharge} টাকা) অর্ডার কনফার্ম করার সময় অগ্রিম পরিশোধ করতে হবে।`;
+        } else {
+          advanceNote = 'মীরসরাইয়ের মধ্যে ডেলিভারি চার্জ ফ্রি, তাই কোনো অগ্রিম পেমেন্ট লাগবে না।';
+        }
+      }
+
       reply =
-        `অর্ডার কনফার্ম!\n\n` +
-        `নাম: ${conversation.order_name}\n` +
-        `পণ্য: ${conversation.pending_product_name}${conversation.pending_variant ? ` (${conversation.pending_variant})` : ''}\n` +
-        `ঠিকানা: ${conversation.order_address}\n` +
-        `মোবাইল: ${phone}\n` +
-        `মোট মূল্য: পণ্য ${conversation.pending_product_price} টাকা + ডেলিভারি ৮০ টাকা = মোট ${total} টাকা\n\n` +
-        `বিকাশ (পার্সোনাল): *${process.env.BKASH_NUMBER}*\n` +
-        `পেমেন্ট করে "paid" লিখে জানান। ২-৩ কর্মদিবসে ডেলিভারি করা হবে।`;
+        `✨ অর্ডার কনফার্মড!\n` +
+        `খুব শিগগিরই ডেলিভারির জন্য পাঠানো হবে।\n\n` +
+        `অর্ডার বিবরণ:\n` +
+        `• নাম: ${conversation.order_name}\n` +
+        `• পণ্য: ${conversation.pending_product_name}${conversation.pending_variant ? ` (${conversation.pending_variant})` : ''}\n` +
+        `• ঠিকানা: ${conversation.order_address}\n` +
+        `• মোবাইল: ${phone}\n` +
+        `• মোট মূল্য: পণ্য ${productPrice} টাকা + ডেলিভারি (${deliveryZone}) ${deliveryCharge} টাকা = মোট ${total} টাকা\n\n` +
+        `📝 পেমেন্ট নির্দেশাবলী:\n` +
+        `• বিকাশ (পার্সোনাল) নম্বরে: 01857045449 অথবা 01877765535 (Send Money)\n` +
+        `• অগ্রিম পরিশোধের পরিমাণ: *${advanceAmount}* টাকা।\n` +
+        `• (${advanceNote})\n\n` +
+        `টাকা পাঠিয়ে অনুগ্রহ করে লাস্ট ৪ ডিজিট বা ট্রানজেকশন আইডি লিখে জানান। ২-৩ কর্মদিবসে ডেলিভারি করা হবে। ধন্যবাদ, Big Bazar 🌸`;
 
       await notifyModerator({
         type: 'NEW_ORDER',
@@ -270,6 +307,14 @@ export async function handleMessage(event) {
       console.warn('Training examples fetch failed (table may not exist yet):', e.message);
     }
 
+    // Fetch dynamic knowledge base rules
+    let knowledgeBase = [];
+    try {
+      knowledgeBase = await getActiveKnowledgeBase();
+    } catch (e) {
+      console.warn('Knowledge base fetch failed:', e.message);
+    }
+
     const historySlice = (conversation.message_history ?? []).slice(-6);
 
     const context = {
@@ -280,6 +325,7 @@ export async function handleMessage(event) {
       pendingProduct: conversation.pending_product_name,
       customerProfile,
       trainingExamples,
+      knowledgeBase,
     };
 
     const systemPrompt = buildSystemPrompt(context);

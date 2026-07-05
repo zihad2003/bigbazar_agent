@@ -64,6 +64,19 @@ CREATE TABLE IF NOT EXISTS settings (
   value      TEXT NOT NULL,
   updated_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS knowledge_base (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  category   TEXT NOT NULL,
+  title      TEXT NOT NULL,
+  content    TEXT NOT NULL,
+  is_active  INTEGER DEFAULT 1,
+  priority   INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_active ON knowledge_base (is_active);
 `;
 
 async function executeSQL(sql) {
