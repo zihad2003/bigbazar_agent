@@ -128,26 +128,13 @@
 
     /* ── Layout ─────────────────────────────────────────────────────────── */
     .layout {
-      display: grid;
-      grid-template-columns: 300px 1fr;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px 20px;
       min-height: calc(100vh - 60px);
     }
 
-    @media (max-width: 900px) {
-      .layout { grid-template-columns: 1fr; }
-      .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
-    }
-
-    .sidebar {
-      background: var(--surface);
-      border-right: 1px solid var(--border);
-      padding: 24px 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 28px;
-    }
-
-    .main { padding: 28px; display: flex; flex-direction: column; gap: 24px; }
+    .main { display: flex; flex-direction: column; gap: 24px; }
 
     /* ── Stats row ──────────────────────────────────────────────────────── */
     .stats-row {
@@ -160,9 +147,9 @@
 
     @media (max-width: 600px) {
       .hide-mobile { display: none !important; }
+      .layout { padding: 12px 10px; }
       .topbar { padding: 0 12px; }
       .refresh-note { display: none; }
-      .main { padding: 16px; }
       .stats-row { grid-template-columns: 1fr; }
       .tabs { padding: 0 10px; overflow-x: auto; white-space: nowrap; }
       
@@ -465,49 +452,23 @@
       <span id="notiBadge" style="display:none; position:absolute; top:-2px; right:-2px; width:16px; height:16px; background:var(--red); color:#fff; border-radius:50%; font-size:10px; font-weight:700; align-items:center; justify-content:center; border:2px solid var(--surface);">0</span>
     </div>
     <span class="refresh-note" id="lastRefreshNote">—</span>
-    <button class="btn btn-ghost" onclick="refreshAll()">↻ <span class="hide-mobile">Refresh</span></button>
-    <button class="btn btn-ghost btn-red" onclick="logout()">🚪 <span class="hide-mobile">Disconnect</span></button>
+    <button class="btn btn-ghost" onclick="refreshAll()" style="gap:6px; display:inline-flex; align-items:center;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+      </svg>
+      <span class="hide-mobile">Refresh</span>
+    </button>
+    <button class="btn btn-ghost btn-red" onclick="logout()" style="gap:6px; display:inline-flex; align-items:center;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
+      </svg>
+      <span class="hide-mobile">Disconnect</span>
+    </button>
   </div>
 </header>
 
 <!-- Main layout -->
 <div class="layout">
-
-  <!-- Sidebar -->
-  <aside class="sidebar">
-
-    <div>
-      <div class="ctrl-section-label">Bot Controls</div>
-      <div class="toggle-row">
-        <div>
-          <div class="toggle-label">Auto-Reply</div>
-          <div class="toggle-sub">Bot responds to all messages</div>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="chkAutoReply">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="toggle-row">
-        <div>
-          <div class="toggle-label">Test Mode</div>
-          <div class="toggle-sub">Only reply to tester PSIDs</div>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="chkTestMode">
-          <span class="slider"></span>
-        </label>
-      </div>
-    </div>
-
-    <div class="field">
-      <label>Tester PSIDs (comma-separated)</label>
-      <textarea id="txtTesterPsids" rows="3" placeholder="10023458, 20384859"></textarea>
-    </div>
-
-    <button class="btn btn-primary" style="width:100%;" onclick="saveSettings()">Save Settings</button>
-
-  </aside>
 
   <!-- Main content -->
   <main class="main">
@@ -540,8 +501,9 @@
       <div class="tabs">
         <button class="tab active" data-tab="convos">Conversations</button>
         <button class="tab" data-tab="orders">Orders</button>
-        <button class="tab" data-tab="training">✏️ Training</button>
-        <button class="tab" data-tab="knowledge">📚 Knowledge Base</button>
+        <button class="tab" data-tab="training">Training</button>
+        <button class="tab" data-tab="knowledge">Knowledge Base</button>
+        <button class="tab" data-tab="settings">Settings</button>
       </div>
 
       <!-- Conversations tab -->
@@ -618,13 +580,13 @@
           <div class="field" style="margin:0;">
             <label style="font-size:11px;">Category</label>
             <select id="kbCategory" style="width:100%; height:36px; padding:0 10px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:inherit;">
-              <option value="delivery">🚚 Delivery Rules</option>
-              <option value="payment">💳 Payment Rules</option>
-              <option value="shop_info">📍 Shop Info</option>
-              <option value="policy">📝 Shop Policies & Rules</option>
-              <option value="product_update">🛍️ Daily Product updates</option>
-              <option value="greeting">👋 Greetings Style</option>
-              <option value="custom">⚙️ Custom Rule</option>
+              <option value="delivery">Delivery Rules</option>
+              <option value="payment">Payment Rules</option>
+              <option value="shop_info">Shop Info</option>
+              <option value="policy">Shop Policies & Rules</option>
+              <option value="product_update">Daily Product updates</option>
+              <option value="greeting">Greetings Style</option>
+              <option value="custom">Custom Rule</option>
             </select>
           </div>
           <div class="field" style="margin:0;">
@@ -665,6 +627,42 @@
               <tr><td colspan="6" class="empty">Loading…</td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- Settings tab -->
+      <div class="tab-body" id="tab-settings">
+        <div style="padding: 24px 20px; display: flex; flex-direction: column; gap: 20px; max-width: 600px;">
+          <div>
+            <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--text);">Bot Controls</h3>
+            <div class="toggle-row" style="padding: 12px 0; border-bottom: 1px solid var(--border);">
+              <div>
+                <div class="toggle-label" style="font-weight: 500;">Auto-Reply</div>
+                <div class="toggle-sub" style="font-size: 11px; color: var(--muted); margin-top: 2px;">Bot responds to all messages</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="chkAutoReply">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="toggle-row" style="padding: 12px 0; border-bottom: none;">
+              <div>
+                <div class="toggle-label" style="font-weight: 500;">Test Mode</div>
+                <div class="toggle-sub" style="font-size: 11px; color: var(--muted); margin-top: 2px;">Only reply to tester PSIDs</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="chkTestMode">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="field" style="margin-top: 10px;">
+            <label style="font-size: 11px; color: var(--muted); font-weight: 500;">Tester PSIDs (comma-separated)</label>
+            <textarea id="txtTesterPsids" rows="3" placeholder="10023458, 20384859" style="margin-top: 6px; font-family: 'JetBrains Mono', monospace; font-size: 12px;"></textarea>
+          </div>
+
+          <button class="btn btn-primary" style="margin-top: 10px; width: 100%; justify-content: center; height: 38px;" onclick="saveSettings()">Save Settings</button>
         </div>
       </div>
     </div>
@@ -1075,13 +1073,13 @@
       }
 
       const catEmojis = {
-        delivery: '🚚',
-        payment: '💳',
-        shop_info: '📍',
-        policy: '📝',
-        product_update: '🛍️',
-        greeting: '👋',
-        custom: '⚙️'
+        delivery: 'Delivery',
+        payment: 'Payment',
+        shop_info: 'Shop Info',
+        policy: 'Policy',
+        product_update: 'Product Update',
+        greeting: 'Greeting',
+        custom: 'Custom'
       };
 
       tbody.innerHTML = allKbEntries.map(k => {
@@ -1090,7 +1088,7 @@
           : `<span class="badge badge-red">Inactive</span>`;
         
         return `<tr>
-          <td><span style="font-weight:600;">${catEmojis[k.category] || '⚙️'} ${e(k.category)}</span></td>
+          <td><span style="font-weight:600;">${e(catEmojis[k.category] || 'Custom')}</span></td>
           <td class="hide-mobile" style="font-weight:500;">${e(k.title)}</td>
           <td style="max-width:350px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${e(k.content)}">${e(k.content)}</td>
           <td class="mono hide-mobile">${k.priority}</td>
