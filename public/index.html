@@ -158,6 +158,22 @@
 
     @media (max-width: 700px) { .stats-row { grid-template-columns: repeat(2,1fr); } }
 
+    @media (max-width: 600px) {
+      .topbar { padding: 0 16px; }
+      .refresh-note { display: none; }
+      .main { padding: 16px; }
+      .stats-row { grid-template-columns: 1fr; }
+      .tabs { padding: 0 10px; overflow-x: auto; white-space: nowrap; }
+      
+      /* Reset grid span 2 for Knowledge Base form on mobile */
+      #tab-knowledge > div {
+        grid-template-columns: 1fr !important;
+      }
+      #tab-knowledge .field {
+        grid-column: span 1 !important;
+      }
+    }
+
     .stat-card {
       background: var(--surface);
       border: 1px solid var(--border);
