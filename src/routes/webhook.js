@@ -35,9 +35,13 @@ webhookRouter.post('/', verifyWebhookSignature, async (req, res) => {
   const body = req.body;
   if (body.object !== 'page') return;
 
+  const host = req.get('host');
+  const protocol = req.protocol;
+  const baseUrl = `${protocol}://${host}`;
+
   for (const entry of body.entry ?? []) {
     for (const event of entry.messaging ?? []) {
-      await handleMessage(event).catch(err =>
+      await handleMessage(event, baseUrl).catch(err =>
         console.error('handleMessage error:', err)
       );
     }

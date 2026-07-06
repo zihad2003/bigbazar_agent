@@ -20,7 +20,7 @@ import { buildSystemPrompt } from '../utils/prompts.js';
 
 const userLocks = new Map();
 
-export async function handleMessage(event) {
+export async function handleMessage(event, baseUrl = '') {
   // Ignore delivery/read receipts and echo messages
   if (!event.message) return;
   if (event.message.is_echo) return;
@@ -195,7 +195,7 @@ export async function handleMessage(event) {
 
         if (aiResult.imageUrl) {
           try {
-            await sendImageMessage(senderId, aiResult.imageUrl);
+            await sendImageMessage(senderId, aiResult.imageUrl, baseUrl);
           } catch (e) {
             console.error('Failed to send product image:', e.message);
           }

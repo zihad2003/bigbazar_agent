@@ -22,15 +22,21 @@ export async function sendMessage(recipientId, text) {
  * Send an image via URL to a Messenger user.
  * Used to share product photos when customer asks "ছবি দেখান".
  */
-export async function sendImageMessage(recipientId, imageUrl) {
+export async function sendImageMessage(recipientId, imageUrl, baseUrl = '') {
   if (!imageUrl) return;
+
+  // Proxy the image through our app to bypass Meta's crawler blocking instagram/weserv URLs
+  const targetUrl = baseUrl
+    ? `${baseUrl}/proxy-image?url=${encodeURIComponent(imageUrl)}&f.jpg`
+    : imageUrl;
+
   try {
     await callSendAPI({
       recipient: { id: recipientId },
       message: {
         attachment: {
           type: 'image',
-          payload: { url: imageUrl, is_reusable: true },
+          payload: { url: targetUrl, is_reusable: true },
         },
       },
       messaging_type: 'RESPONSE',

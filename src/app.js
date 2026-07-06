@@ -27,6 +27,36 @@ app.use(requestLogger);
 app.use('/dashboard', express.static(path.join(__dirname, '../public')));
 app.get('/dashbroad', (req, res) => res.redirect('/dashboard'));
 
+app.get('/proxy-image', async (req, res) => {
+  try {
+    const targetUrl = req.query.url;
+    if (!targetUrl) {
+      return res.status(400).send('Missing url parameter');
+    }
+
+    const imgRes = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+      }
+    });
+
+    if (!imgRes.ok) {
+      return res.status(imgRes.status).send(`Failed to fetch image: ${imgRes.statusText}`);
+    }
+
+    const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24h
+
+    const arrayBuffer = await imgRes.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    res.send(buffer);
+  } catch (err) {
+    console.error('Proxy image error:', err.message);
+    res.status(500).send(err.message);
+  }
+});
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/webhook', webhookRouter);   // Facebook webhook
 app.use('/admin', adminRouter);        // Human moderator dashboard API
