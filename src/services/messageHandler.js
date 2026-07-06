@@ -207,19 +207,23 @@ export async function handleMessage(event, baseUrl = '') {
           pending_variant: aiResult.variant || conversation.pending_variant || null,
         };
 
-        reply =
-          `Thank you for contacting Big Bazar! \n` +
-          `✨ Assalamu Alaikum!\n\n` +
-          `অর্ডার করতে \n` +
-          `নাম:\n` +
-          `নাম্বার :\n` +
-          `ঠিকানা :\n` +
-          `ডেলিভারি চার্জ সমূহ :\n` +
-          `• মিরসরাই : ফ্রি \n` +
-          `• চট্টগ্রাম : ১০০ টাকা \n` +
-          `• সারা বাংলাদেশের: ১৫০ টাকা \n` +
-          `(send money) \n\n` +
-          `এবং 01877765535 এই নাম্বারে ডেলিভারি চার্জ এডবান্স করে লাস্ট ডিজিট বলুন সাথে পন্যের স্ক্রিনশট দিন।`;
+        if (!aiResult.text.includes('নাম:') && !aiResult.text.includes('ঠিকানা:')) {
+          reply = aiResult.text + '\n\n' +
+            `Thank you for contacting Big Bazar! \n` +
+            `✨ Assalamu Alaikum!\n\n` +
+            `অর্ডার করতে \n` +
+            `নাম:\n` +
+            `নাম্বার :\n` +
+            `ঠিকানা :\n` +
+            `ডেলিভারি চার্জ সমূহ :\n` +
+            `• মিরসরাই : ফ্রি \n` +
+            `• চট্টগ্রাম : ১০০ টাকা \n` +
+            `• সারা বাংলাদেশের: ১৫০ টাকা \n` +
+            `(send money) \n\n` +
+            `এবং 01877765535 এই নাম্বারে ডেলিভারি চার্জ এডবান্স করে লাস্ট ডিজিট বলুন সাথে পন্যের স্ক্রিনশট দিন।`;
+        } else {
+          reply = aiResult.text;
+        }
       } else if (aiResult.intent === 'CONFIRM_ORDER') {
         const customerName = (aiResult.customerName || conversation.order_name || '').trim();
         const customerAddress = (aiResult.customerAddress || conversation.order_address || '').trim();
