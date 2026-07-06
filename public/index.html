@@ -159,7 +159,8 @@
     @media (max-width: 700px) { .stats-row { grid-template-columns: repeat(2,1fr); } }
 
     @media (max-width: 600px) {
-      .topbar { padding: 0 16px; }
+      .hide-mobile { display: none !important; }
+      .topbar { padding: 0 12px; }
       .refresh-note { display: none; }
       .main { padding: 16px; }
       .stats-row { grid-template-columns: 1fr; }
@@ -453,7 +454,7 @@
 <header class="topbar">
   <div class="brand">
     <div class="brand-dot"></div>
-    BigBazar AI Agent
+    BigBazar <span class="hide-mobile">AI Agent</span>
   </div>
   <div class="topbar-right">
     <div id="notiBell" style="position:relative; cursor:pointer; padding:6px; display:flex; align-items:center; justify-content:center; color:var(--muted-2); transition: color 0.2s; margin-right: 8px;" onclick="switchTab('convos')" title="View Active Handoffs">
@@ -464,8 +465,8 @@
       <span id="notiBadge" style="display:none; position:absolute; top:-2px; right:-2px; width:16px; height:16px; background:var(--red); color:#fff; border-radius:50%; font-size:10px; font-weight:700; align-items:center; justify-content:center; border:2px solid var(--surface);">0</span>
     </div>
     <span class="refresh-note" id="lastRefreshNote">—</span>
-    <button class="btn btn-ghost" onclick="refreshAll()">↻ Refresh</button>
-    <button class="btn btn-ghost btn-red" onclick="logout()">Disconnect</button>
+    <button class="btn btn-ghost" onclick="refreshAll()">↻ <span class="hide-mobile">Refresh</span></button>
+    <button class="btn btn-ghost btn-red" onclick="logout()">🚪 <span class="hide-mobile">Disconnect</span></button>
   </div>
 </header>
 
@@ -550,9 +551,9 @@
             <thead>
               <tr>
                 <th>Customer PSID</th>
-                <th>State</th>
+                <th class="hide-mobile">State</th>
                 <th>Bot Status</th>
-                <th>Reason Paused</th>
+                <th class="hide-mobile">Reason Paused</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -575,8 +576,8 @@
                 <th>Customer</th>
                 <th>Product</th>
                 <th>Total</th>
-                <th>Status</th>
-                <th>Date</th>
+                <th class="hide-mobile">Status</th>
+                <th class="hide-mobile">Date</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -598,7 +599,7 @@
             <thead>
               <tr>
                 <th>Customer মেসেজ</th>
-                <th style="color:var(--red);">Bot এর ভুল উত্তর</th>
+                <th class="hide-mobile" style="color:var(--red);">Bot এর ভুল উত্তর</th>
                 <th style="color:var(--green);">সঠিক উত্তর</th>
                 <th>Delete</th>
               </tr>
@@ -653,9 +654,9 @@
             <thead>
               <tr>
                 <th>Category</th>
-                <th>Title / Rule Name</th>
+                <th class="hide-mobile">Title / Rule Name</th>
                 <th>Content</th>
-                <th>Priority</th>
+                <th class="hide-mobile">Priority</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
@@ -881,9 +882,9 @@
 
       return `<tr>
         <td><span class="mono">${e(c.sender_id)}</span></td>
-        <td>${stateBadge}</td>
+        <td class="hide-mobile">${stateBadge}</td>
         <td>${statusBadge}</td>
-        <td style="color:var(--muted);font-size:12px;">${e(c.paused_reason || '—')}</td>
+        <td class="hide-mobile" style="color:var(--muted);font-size:12px;">${e(c.paused_reason || '—')}</td>
         <td>
           <div class="action-group">
             ${actionBtn}
@@ -983,8 +984,8 @@
           ${o.variant ? `<div style="font-size:11px;color:var(--muted);">${e(o.variant)}</div>` : ''}
         </td>
         <td style="font-weight:700;color:var(--cyan);">৳ ${total}</td>
-        <td>${statusBadge}</td>
-        <td style="font-size:12px;color:var(--muted);">${dateStr}</td>
+        <td class="hide-mobile">${statusBadge}</td>
+        <td class="hide-mobile" style="font-size:12px;color:var(--muted);">${dateStr}</td>
         <td>
           <div class="action-group">
             ${updateBtns}${shipBtn}${cancelBtn}
@@ -1047,7 +1048,7 @@
     }
     tbody.innerHTML = examples.map(ex => `<tr>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e(ex.customer_message)}">${e(ex.customer_message)}</td>
-      <td style="color:var(--red);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e(ex.wrong_bot_reply||'')}">  ${e(ex.wrong_bot_reply || '—')}</td>
+      <td class="hide-mobile" style="color:var(--red);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e(ex.wrong_bot_reply||'')}">  ${e(ex.wrong_bot_reply || '—')}</td>
       <td style="color:var(--green);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e(ex.correct_reply)}">${e(ex.correct_reply)}</td>
       <td><button class="btn btn-sm btn-red" onclick="deleteTeach(${ex.id})">Delete</button></td>
     </tr>`).join('');
@@ -1090,9 +1091,9 @@
         
         return `<tr>
           <td><span style="font-weight:600;">${catEmojis[k.category] || '⚙️'} ${e(k.category)}</span></td>
-          <td style="font-weight:500;">${e(k.title)}</td>
+          <td class="hide-mobile" style="font-weight:500;">${e(k.title)}</td>
           <td style="max-width:350px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${e(k.content)}">${e(k.content)}</td>
-          <td class="mono">${k.priority}</td>
+          <td class="mono hide-mobile">${k.priority}</td>
           <td>${activeBadge}</td>
           <td>
             <div class="action-group">
