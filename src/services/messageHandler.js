@@ -193,9 +193,9 @@ export async function handleMessage(event, baseUrl = '') {
           pending_variant: aiResult.variant ?? null,
         };
 
-        if (aiResult.imageUrl) {
+        if (aiResult.imageUrl && typeof aiResult.imageUrl === 'string' && aiResult.imageUrl.trim().toLowerCase().startsWith('http')) {
           try {
-            await sendImageMessage(senderId, aiResult.imageUrl, baseUrl);
+            await sendImageMessage(senderId, aiResult.imageUrl.trim(), baseUrl);
           } catch (e) {
             console.error('Failed to send product image:', e.message);
           }
