@@ -489,6 +489,9 @@
   <!-- Main content -->
   <main class="main">
 
+    <!-- Notifications Area -->
+    <div id="notificationsArea" style="display:none; flex-direction:column; gap:12px; margin-bottom: 12px;"></div>
+
     <!-- Stats -->
     <div class="stats-row">
       <div class="stat-card">
@@ -797,6 +800,32 @@
     const paused = conversations.filter(c =>  c.paused_by_ai).length;
     document.getElementById('statActive').textContent = active;
     document.getElementById('statPaused').textContent = paused;
+
+    // Render prominent warning cards for paused AI handoffs
+    const pausedConvos = conversations.filter(c => c.paused_by_ai);
+    const notificationsArea = document.getElementById('notificationsArea');
+    if (pausedConvos.length > 0) {
+      notificationsArea.style.display = 'flex';
+      notificationsArea.innerHTML = pausedConvos.map(c => `
+        <div style="background:var(--red-dim); border:1px solid rgba(239,68,68,0.2); border-radius:10px; padding:12px 18px; display:flex; justify-content:space-between; align-items:center; gap:16px;">
+          <div style="flex:1;">
+            <div style="font-weight:600; color:var(--red); margin-bottom:2px; font-size:13px; display:flex; align-items:center; gap:6px;">
+              ⚠️ AI Needs Info / Paused
+            </div>
+            <div style="font-size:12px; color:var(--text);">
+              The model needs info or has paused chat for customer <span class="mono" style="font-weight:600;">${e(c.sender_id)}</span>. Reason: <em>"${e(c.paused_reason || 'AI could not resolve query')}"</em>
+            </div>
+          </div>
+          <div class="action-group">
+            <button class="btn btn-sm btn-green" onclick="resumeBot('${e(c.sender_id)}')">▶ Resume Bot</button>
+            <button class="btn btn-sm btn-ghost" onclick="viewHistory('${e(c.sender_id)}')">💬 Chat</button>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      notificationsArea.style.display = 'none';
+      notificationsArea.innerHTML = '';
+    }
 
     if (!conversations.length) {
       tbody.innerHTML = `<tr><td colspan="5" class="empty">No conversations yet.</td></tr>`;

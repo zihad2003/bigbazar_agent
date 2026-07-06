@@ -365,7 +365,7 @@ async function triggerHandoff(senderId, conversation, reason) {
 
   await sendMessage(
     senderId,
-    'একটু অপেক্ষা করুন। আমাদের টিম এখনই আপনার সাথে যোগাযোগ করবে।'
+    'একটু অপেক্ষা করুন আমি দেখে জানাচ্ছি'
   );
 
   await notifyModerator({
