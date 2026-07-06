@@ -318,3 +318,30 @@ export async function updateKnowledgeEntry(id, { category, title, content, is_ac
 export async function deleteKnowledgeEntry(id) {
   await executeQuery('DELETE FROM knowledge_base WHERE id = ?', [id]);
 }
+
+export async function deleteConversation(senderId) {
+  await executeQuery('DELETE FROM conversations WHERE sender_id = ?', [senderId]);
+}
+
+export async function deleteOrder(id) {
+  await executeQuery('DELETE FROM orders WHERE id = ?', [id]);
+}
+
+export async function updateTrainingExample(id, { customerMessage, wrongBotReply, correctReply }) {
+  await executeQuery(
+    `UPDATE training_examples 
+     SET customer_message = ?, wrong_bot_reply = ?, correct_reply = ? 
+     WHERE id = ?`,
+    [customerMessage, wrongBotReply || null, correctReply, id]
+  );
+}
+
+export async function createManualOrder({ sender_id, customer_name, customer_address, customer_phone, product_name, product_price, variant, status }) {
+  const result = await executeQuery(
+    `INSERT INTO orders (sender_id, customer_name, customer_address, customer_phone, 
+     product_name, product_price, variant, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    [sender_id, customer_name, customer_address, customer_phone, product_name, product_price, variant, status || 'pending_payment']
+  );
+  return { id: result.meta.last_row_id };
+}

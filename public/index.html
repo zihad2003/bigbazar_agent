@@ -528,8 +528,9 @@
 
       <!-- Orders tab -->
       <div class="tab-body" id="tab-orders">
-        <div class="panel-header" style="border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
+        <div class="panel-header" style="border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); display:flex; justify-content:space-between; align-items:center; padding: 12px 20px;">
           <span style="font-size:12px; color:var(--muted);">Last 100 orders · newest first</span>
+          <button class="btn btn-sm btn-primary" onclick="openOrderModal()">➕ Create Order</button>
         </div>
         <div class="table-wrap">
           <table>
@@ -554,7 +555,7 @@
       <div class="tab-body" id="tab-training">
         <div class="panel-header" style="border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); display:flex; justify-content:space-between; align-items:center; padding: 12px 20px;">
           <span style="font-size:13px; color:var(--text); font-weight:500;">শেখানো উদাহরণ — Bot এর সঠিক উত্তর শেখার জন্য</span>
-          <span style="font-size:12px; color:var(--muted);">Chat history থেকে ✏️ Teach বাটনে ক্লিক করে শেখান</span>
+          <button class="btn btn-sm btn-primary" onclick="openTeachModalManual()">➕ Add Example</button>
         </div>
         <div class="table-wrap">
           <table>
@@ -697,30 +698,86 @@
   </div>
 </div>
 
-<!-- Teach modal -->
+<!-- Teach/Edit Bot Modal -->
 <div class="overlay" id="overlayTeach">
   <div class="modal" style="width: min(560px,94vw);">
-    <h2>✏️ Bot কে শেখাও</h2>
-    <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">কাস্টমারের মেসেজে bot ভুল উত্তর দিয়েছে — সঠিক উত্তরটি লিখুন। Bot পরের বার শিখে নেবে।</p>
+    <h2 id="teachModalTitle">Bot কে শেখাও</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">বটের সঠিক উত্তর শেখার উদাহরণ যোগ বা সংশোধন করুন।</p>
+    <input type="hidden" id="teachId" value="">
 
-    <div style="margin-bottom:14px;">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Customer এর মেসেজ:</div>
-      <div id="teachCustomer" style="background:var(--surface-2);border-radius:8px;padding:10px 14px;font-size:13px;border:1px solid var(--border);"></div>
+    <div style="margin-bottom:14px;" class="field">
+      <label>Customer এর মেসেজ *</label>
+      <input type="text" id="teachCustomer" placeholder="কাস্টমারের মেসেজ..." style="width:100%; height:36px; padding:0 10px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:inherit;">
     </div>
 
-    <div style="margin-bottom:14px;">
-      <div style="font-size:12px;color:var(--red);margin-bottom:4px;">Bot এর ভুল উত্তর:</div>
-      <div id="teachWrong" style="background:rgba(239,68,68,0.08);border-radius:8px;padding:10px 14px;font-size:13px;border:1px solid rgba(239,68,68,0.25);color:var(--muted-2);"></div>
+    <div style="margin-bottom:14px;" class="field">
+      <label>Bot এর ভুল উত্তর (ঐচ্ছিক)</label>
+      <input type="text" id="teachWrong" placeholder="বটের ভুল উত্তর (যদি থাকে)..." style="width:100%; height:36px; padding:0 10px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:inherit;">
     </div>
 
-    <div style="margin-bottom:20px;">
-      <div style="font-size:12px;color:var(--green);margin-bottom:4px;">সঠিক উত্তর লিখুন:</div>
+    <div style="margin-bottom:20px;" class="field">
+      <label>সঠিক উত্তর লিখুন *</label>
       <textarea id="teachCorrect" rows="3" placeholder="এখানে সঠিক উত্তরটি লিখুন..." style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--text);resize:vertical;font-family:inherit;"></textarea>
     </div>
 
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('overlayTeach')">বাতিল</button>
-      <button class="btn btn-primary" onclick="saveTeach()">Bot কে শেখাও</button>
+      <button class="btn btn-primary" onclick="saveTeach()">সংরক্ষণ করুন</button>
+    </div>
+  </div>
+</div>
+
+<!-- Create/Edit Order Modal -->
+<div class="overlay" id="overlayOrder">
+  <div class="modal" style="width: min(520px, 94vw);">
+    <h2 id="orderModalTitle">Create Order</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">ম্যানুয়ালি নতুন অর্ডার রেকর্ড তৈরি করুন।</p>
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <div class="field">
+        <label>Customer PSID (Optional)</label>
+        <input type="text" id="ordSenderId" placeholder="e.g. 4577531245683760">
+      </div>
+      <div class="field">
+        <label>Customer Name *</label>
+        <input type="text" id="ordName" placeholder="Customer name...">
+      </div>
+      <div class="field">
+        <label>Customer Phone *</label>
+        <input type="text" id="ordPhone" placeholder="Mobile number...">
+      </div>
+      <div class="field">
+        <label>Delivery Address *</label>
+        <input type="text" id="ordAddress" placeholder="Full address...">
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div class="field">
+          <label>Product Name *</label>
+          <input type="text" id="ordProduct" placeholder="e.g. সুতি শাড়ি">
+        </div>
+        <div class="field">
+          <label>Product Price *</label>
+          <input type="number" id="ordPrice" placeholder="e.g. 1200">
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div class="field">
+          <label>Product Variant</label>
+          <input type="text" id="ordVariant" placeholder="e.g. Red, Blue">
+        </div>
+        <div class="field">
+          <label>Order Status</label>
+          <select id="ordStatus" style="width:100%; height:36px; padding:0 10px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:inherit;">
+            <option value="pending_payment">Pending Payment</option>
+            <option value="paid">Paid</option>
+            <option value="shipped">Shipped</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('overlayOrder')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveManualOrder()">Save Order</button>
     </div>
   </div>
 </div>
@@ -887,6 +944,7 @@
           <div class="action-group">
             ${actionBtn}
             <button class="btn btn-sm btn-ghost" onclick="viewHistory('${e(c.sender_id)}')">💬 Chat</button>
+            <button class="btn btn-sm btn-ghost" style="color:var(--red); border-color:rgba(239,68,68,0.25);" onclick="deleteConversationRecord('${e(c.sender_id)}')">Delete</button>
           </div>
         </td>
       </tr>`;
@@ -987,6 +1045,7 @@
         <td>
           <div class="action-group">
             ${updateBtns}${shipBtn}${cancelBtn}
+            <button class="btn btn-sm btn-ghost" style="color:var(--red); border-color:rgba(239,68,68,0.25);" onclick="deleteOrderRecord(${o.id})">Delete</button>
           </div>
         </td>
       </tr>`;
@@ -1002,7 +1061,7 @@
   }
 
   // ── Training (Human-in-the-Loop) ──────────────────────────────────────────
-  let _teachData = {};
+  let allTrainingExamples = [];
 
   function openTeach(senderId, msgIndex) {
     const c = conversations.find(x => x.sender_id === senderId);
@@ -1012,43 +1071,78 @@
     const prevMsg = history[msgIndex - 1];
     if (!botMsg) return;
 
-    _teachData = {
-      customerMessage: prevMsg?.content || '',
-      wrongBotReply: botMsg.content,
-    };
-
-    document.getElementById('teachCustomer').textContent = _teachData.customerMessage || '(no preceding message)';
-    document.getElementById('teachWrong').textContent = _teachData.wrongBotReply;
+    document.getElementById('teachModalTitle').textContent = 'Bot কে শেখাও';
+    document.getElementById('teachId').value = '';
+    document.getElementById('teachCustomer').value = prevMsg?.content || '';
+    document.getElementById('teachWrong').value = botMsg.content || '';
     document.getElementById('teachCorrect').value = '';
     document.getElementById('overlayTeach').classList.add('open');
   }
 
+  function openTeachModalManual() {
+    document.getElementById('teachModalTitle').textContent = 'নতুন শেখার উদাহরণ যোগ করুন';
+    document.getElementById('teachId').value = '';
+    document.getElementById('teachCustomer').value = '';
+    document.getElementById('teachWrong').value = '';
+    document.getElementById('teachCorrect').value = '';
+    document.getElementById('overlayTeach').classList.add('open');
+  }
+
+  function editTeach(id) {
+    const ex = allTrainingExamples.find(x => x.id === id);
+    if (!ex) return;
+    document.getElementById('teachModalTitle').textContent = 'উদাহরণ সংশোধন করুন';
+    document.getElementById('teachId').value = ex.id;
+    document.getElementById('teachCustomer').value = ex.customer_message;
+    document.getElementById('teachWrong').value = ex.wrong_bot_reply || '';
+    document.getElementById('teachCorrect').value = ex.correct_reply;
+    document.getElementById('overlayTeach').classList.add('open');
+  }
+
   async function saveTeach() {
+    const id = document.getElementById('teachId').value;
+    const customerMessage = document.getElementById('teachCustomer').value.trim();
+    const wrongBotReply = document.getElementById('teachWrong').value.trim() || null;
     const correctReply = document.getElementById('teachCorrect').value.trim();
-    if (!correctReply) { toast('সঠিক উত্তর লিখুন', 'error'); return; }
-    await api('/admin/training', 'POST', {
-      customerMessage: _teachData.customerMessage,
-      wrongBotReply: _teachData.wrongBotReply,
-      correctReply,
-    });
-    closeModal('overlayTeach');
-    toast('Bot কে শেখানো হয়েছে!', 'success');
-    loadTraining();
+
+    if (!customerMessage || !correctReply) {
+      toast('Customer message and correct reply are required', 'error');
+      return;
+    }
+
+    try {
+      if (id) {
+        await api(`/admin/training/${id}`, 'PUT', { customerMessage, wrongBotReply, correctReply });
+        toast('উদাহরণ আপডেট করা হয়েছে!', 'success');
+      } else {
+        await api('/admin/training', 'POST', { customerMessage, wrongBotReply, correctReply });
+        toast('নতুন উদাহরণ যোগ করা হয়েছে!', 'success');
+      }
+      closeModal('overlayTeach');
+      loadTraining();
+    } catch (err) {
+      toast(`সংরক্ষণ ব্যর্থ হয়েছে: ${err.message}`, 'error');
+    }
   }
 
   async function loadTraining() {
     const tbody = document.getElementById('tblTraining');
     if (!tbody) return;
-    const examples = await api('/admin/training');
-    if (!examples || !examples.length) {
-      tbody.innerHTML = `<tr><td colspan="4" class="empty">এখনো কোনো শেখানো উদাহরণ নেই। Chat history থেকে ✏️ Teach বাটনে ক্লিক করুন।</td></tr>`;
+    allTrainingExamples = await api('/admin/training');
+    if (!allTrainingExamples || !allTrainingExamples.length) {
+      tbody.innerHTML = `<tr><td colspan="4" class="empty">এখনো কোনো শেখানো উদাহরণ নেই। Chat history থেকে Teach বাটনে বা ওপরে Add Example বাটনে ক্লিক করুন।</td></tr>`;
       return;
     }
-    tbody.innerHTML = examples.map(ex => `<tr>
+    tbody.innerHTML = allTrainingExamples.map(ex => `<tr>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e(ex.customer_message)}">${e(ex.customer_message)}</td>
       <td class="hide-mobile" style="color:var(--red);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e(ex.wrong_bot_reply||'')}">  ${e(ex.wrong_bot_reply || '—')}</td>
       <td style="color:var(--green);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e(ex.correct_reply)}">${e(ex.correct_reply)}</td>
-      <td><button class="btn btn-sm btn-red" onclick="deleteTeach(${ex.id})">Delete</button></td>
+      <td>
+        <div class="action-group">
+          <button class="btn btn-sm btn-ghost" onclick="editTeach(${ex.id})">Edit</button>
+          <button class="btn btn-sm btn-red" onclick="deleteTeach(${ex.id})">Delete</button>
+        </div>
+      </td>
     </tr>`).join('');
   }
 
@@ -1057,6 +1151,77 @@
     await api(`/admin/training/${id}`, 'DELETE');
     toast('Deleted', 'success');
     loadTraining();
+  }
+
+  async function deleteConversationRecord(senderId) {
+    if (!confirm(`Delete conversation history for customer ${senderId}? This cannot be undone.`)) return;
+    try {
+      await api(`/admin/conversations/${senderId}`, 'DELETE');
+      toast('Conversation deleted successfully', 'success');
+      loadConversations();
+    } catch (err) {
+      toast(`Delete failed: ${err.message}`, 'error');
+    }
+  }
+
+  async function deleteOrderRecord(orderId) {
+    if (!confirm(`Delete order record #${orderId}? This cannot be undone.`)) return;
+    try {
+      await api(`/admin/orders/${orderId}`, 'DELETE');
+      toast('Order record deleted successfully', 'success');
+      loadOrders();
+    } catch (err) {
+      toast(`Delete failed: ${err.message}`, 'error');
+    }
+  }
+
+  function openOrderModal() {
+    document.getElementById('orderModalTitle').textContent = 'Create Manual Order';
+    document.getElementById('ordSenderId').value = '';
+    document.getElementById('ordName').value = '';
+    document.getElementById('ordPhone').value = '';
+    document.getElementById('ordAddress').value = '';
+    document.getElementById('ordProduct').value = '';
+    document.getElementById('ordPrice').value = '';
+    document.getElementById('ordVariant').value = '';
+    document.getElementById('ordStatus').value = 'pending_payment';
+    document.getElementById('overlayOrder').classList.add('open');
+  }
+
+  async function saveManualOrder() {
+    const sender_id = document.getElementById('ordSenderId').value.trim() || null;
+    const customer_name = document.getElementById('ordName').value.trim();
+    const customer_phone = document.getElementById('ordPhone').value.trim();
+    const customer_address = document.getElementById('ordAddress').value.trim();
+    const product_name = document.getElementById('ordProduct').value.trim();
+    const product_price = document.getElementById('ordPrice').value;
+    const variant = document.getElementById('ordVariant').value.trim() || null;
+    const status = document.getElementById('ordStatus').value;
+
+    if (!customer_name || !customer_phone || !customer_address || !product_name || !product_price) {
+      toast('Please fill all required fields (*)', 'error');
+      return;
+    }
+
+    const payload = {
+      sender_id,
+      customer_name,
+      customer_phone,
+      customer_address,
+      product_name,
+      product_price: Number(product_price),
+      variant,
+      status
+    };
+
+    try {
+      await api('/admin/orders', 'POST', payload);
+      toast('Order created successfully!', 'success');
+      closeModal('overlayOrder');
+      loadOrders();
+    } catch (err) {
+      toast(`Save failed: ${err.message}`, 'error');
+    }
   }
 
   // ── Knowledge Base ─────────────────────────────────────────────────────────

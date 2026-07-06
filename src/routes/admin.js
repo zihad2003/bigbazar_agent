@@ -10,7 +10,7 @@
 
 import { Router } from 'express';
 import crypto from 'crypto';
-import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus, saveTrainingExample, getTrainingExamples, deleteTrainingExample, getKnowledgeEntries, saveKnowledgeEntry, updateKnowledgeEntry, deleteKnowledgeEntry } from '../services/d1.js';
+import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus, saveTrainingExample, getTrainingExamples, deleteTrainingExample, getKnowledgeEntries, saveKnowledgeEntry, updateKnowledgeEntry, deleteKnowledgeEntry, deleteConversation, deleteOrder, updateTrainingExample, createManualOrder } from '../services/d1.js';
 
 export const adminRouter = Router();
 
@@ -185,6 +185,50 @@ adminRouter.put('/knowledge/:id', async (req, res) => {
 adminRouter.delete('/knowledge/:id', async (req, res) => {
   try {
     await deleteKnowledgeEntry(req.params.id);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.delete('/conversations/:id', async (req, res) => {
+  try {
+    await deleteConversation(req.params.id);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.post('/orders', async (req, res) => {
+  try {
+    const { sender_id, customer_name, customer_address, customer_phone, product_name, product_price, variant, status } = req.body;
+    if (!customer_name || !customer_phone || !product_name || !product_price) {
+      return res.status(400).json({ error: 'customer_name, customer_phone, product_name, and product_price are required' });
+    }
+    const result = await createManualOrder({ sender_id, customer_name, customer_address, customer_phone, product_name, product_price, variant, status });
+    res.json({ ok: true, id: result.id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.delete('/orders/:id', async (req, res) => {
+  try {
+    await deleteOrder(req.params.id);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.put('/training/:id', async (req, res) => {
+  try {
+    const { customerMessage, wrongBotReply, correctReply } = req.body;
+    if (!customerMessage || !correctReply) {
+      return res.status(400).json({ error: 'customerMessage and correctReply are required' });
+    }
+    await updateTrainingExample(req.params.id, { customerMessage, wrongBotReply, correctReply });
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
