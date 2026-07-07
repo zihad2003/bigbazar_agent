@@ -26,13 +26,13 @@ function expandQueryKeywords(messageText) {
   }
 
   // Three piece mapping
-  const threePieceKeywords = ['three piece', 'three-piece', '3 piece', '3-piece', '3piece', '3pis', '3pic', 'three pices', 'three pices', 'ثري بيس', 'থ্রিপিস', 'থ্রি-পিস'];
+  const threePieceKeywords = ['three piece', 'three-piece', '3 piece', '3-piece', '3piece', '3pis', '3pic', 'three pices', 'three pices', 'ثري بيس', 'থ্রিপিস', 'থ্রি-পিস', 'thee piece', 'thee-piece', 'thee pis', 'thee pic', 'thre piece', 'thre-piece', 'thre pis', 'thre pic'];
   if (threePieceKeywords.some(kw => lower.includes(kw))) {
     queries.push('3piece', '3pis', 'three piece', 'three pices');
   }
 
   // Two piece mapping
-  const twoPieceKeywords = ['two piece', 'two-piece', '2 piece', '2-piece', '2piece', '2pis', '2pic', 'two pices', 'টুপিস', 'টু-পিস'];
+  const twoPieceKeywords = ['two piece', 'two-piece', '2 piece', '2-piece', '2piece', '2pis', '2pic', 'two pices', 'টুপিস', 'টু-পিস', 'tow piece', 'tow-piece', 'tow pis', 'tow pic', 'to piece', 'to-piece', 'to pis', 'to pic'];
   if (twoPieceKeywords.some(kw => lower.includes(kw))) {
     queries.push('2 piece', '2pis');
   }
