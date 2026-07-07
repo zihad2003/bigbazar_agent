@@ -87,7 +87,7 @@ Saved Customer Phone: ${customerProfile.lastPhone || 'N/A'}
   }
 
   // Always inject product context so the AI knows if the catalog search returned empty
-  const storefrontUrl = process.env.STOREFRONT_URL || 'https://bigbazarbariarhat.com';
+  const storefrontUrl = process.env.STOREFRONT_URL || 'https://bigbazarbariarhat.pages.dev';
   let productLines = '[কোনো মিল পাওয়া যায়নি / ক্যাটালগ খালি]';
   if (products.length > 0) {
     productLines = products

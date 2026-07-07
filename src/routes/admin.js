@@ -11,7 +11,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus, saveTrainingExample, getTrainingExamples, deleteTrainingExample, getKnowledgeEntries, saveKnowledgeEntry, updateKnowledgeEntry, deleteKnowledgeEntry, deleteConversation, deleteOrder, updateTrainingExample, createManualOrder } from '../services/d1.js';
-import { getAllProducts, getProductStats } from '../db/tidb.js';
+import { getAllProducts, getProductStats, updateProductImages } from '../db/tidb.js';
 
 export const adminRouter = Router();
 
@@ -267,3 +267,28 @@ adminRouter.get('/products/stats', async (_req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+adminRouter.put('/products/:id/images', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { images } = req.body;
+
+    if (!Array.isArray(images)) {
+      return res.status(400).json({ error: 'images must be an array of URLs' });
+    }
+
+    // Basic validation of URLs
+    for (const url of images) {
+      if (typeof url !== 'string' || !url.trim().startsWith('http')) {
+        return res.status(400).json({ error: 'All image elements must be valid HTTP/HTTPS URLs' });
+      }
+    }
+
+    await updateProductImages(id, images);
+    res.json({ ok: true, images });
+  } catch (error) {
+    console.error('Product images update error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+

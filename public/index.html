@@ -1105,7 +1105,21 @@
     <div id="detailVideo"></div>
     <div id="detailDesc"></div>
     <div class="detail-info" id="detailInfo"></div>
-    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+
+    <!-- Manage Gallery Images Section -->
+    <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+      <h4 style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">Manage Gallery Images</h4>
+      <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+        <input type="text" id="inpAddImageUrl" placeholder="Paste image URL here..." style="flex: 1; height: 34px; padding: 0 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 12px;">
+        <button class="btn btn-primary btn-sm" onclick="addImageToProduct()">Add Image</button>
+      </div>
+      <div id="galleryImageActions" style="display: flex; gap: 8px; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted);">
+        <span>Click a thumbnail above/below to select, then:</span>
+        <button class="btn btn-red btn-sm" onclick="deleteSelectedProductImage()" style="padding: 4px 10px; font-size: 11px;">Delete Selected Image</button>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
       <button class="btn btn-ghost btn-sm" id="btnCopyLink" onclick="copyProductLink()">Copy Storefront Link</button>
     </div>
   </div>
@@ -1746,7 +1760,7 @@
         return;
       }
 
-      const storefrontUrl = 'https://bigbazarbariarhat.com';
+      const storefrontUrl = 'https://bigbazarbariarhat.pages.dev';
 
       grid.innerHTML = allProducts.map((p, i) => {
         // Parse images array
@@ -1990,7 +2004,7 @@
 
   function copyProductLink() {
     if (!currentProduct) return;
-    const storefrontUrl = 'https://bigbazarbariarhat.com';
+    const storefrontUrl = 'https://bigbazarbariarhat.pages.dev';
     const link = `${storefrontUrl}/products/${currentProduct.id}`;
     navigator.clipboard.writeText(link).then(() => {
       toast('Product link copied!', 'success');
@@ -2005,6 +2019,102 @@
       toast('Product link copied!', 'success');
     });
   }
+
+  async function addImageToProduct() {
+    if (!currentProduct) return;
+    const urlInput = document.getElementById('inpAddImageUrl');
+    const url = urlInput.value.trim();
+    if (!url) {
+      toast('Please enter or paste a valid image URL', 'error');
+      return;
+    }
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      toast('Image URL must start with http:// or https://', 'error');
+      return;
+    }
+
+    try {
+      // Append url to our local galleryImages list
+      const updatedImages = [...galleryImages];
+      if (updatedImages.includes(url)) {
+        toast('This image is already in the gallery', 'error');
+        return;
+      }
+      updatedImages.push(url);
+
+      const res = await api(`/admin/products/${currentProduct.id}/images`, 'PUT', { images: updatedImages });
+      if (res.ok) {
+        galleryImages = updatedImages;
+        galleryIndex = galleryImages.length - 1; // select the newly added image
+        updateGallery();
+        
+        // Regenerate thumbnails
+        const thumbsEl = document.getElementById('galleryThumbs');
+        thumbsEl.innerHTML = galleryImages.map((imgUrl, i) =>
+          `<img class="gallery-thumb ${i === galleryIndex ? 'active' : ''}" src="/proxy-image?url=${encodeURIComponent(imgUrl)}" onclick="galleryGoTo(${i})" loading="lazy" onerror="this.style.display='none'">`
+        ).join('');
+        thumbsEl.style.display = 'flex';
+        
+        const showNav = galleryImages.length > 1;
+        document.querySelector('.gallery-nav.prev').style.display = showNav ? 'flex' : 'none';
+        document.querySelector('.gallery-nav.next').style.display = showNav ? 'flex' : 'none';
+
+        urlInput.value = '';
+        toast('Image added to gallery!', 'success');
+        
+        // Also update local allProducts cache so if they close and click it again, it's correct
+        currentProduct.images = galleryImages;
+        currentProduct.imageUrl = galleryImages[0] || null;
+        
+        // Also reload main list so thumbnail changes there
+        loadProducts(currentPage);
+      }
+    } catch (err) {
+      toast(`Failed to add image: ${err.message}`, 'error');
+    }
+  }
+
+  async function deleteSelectedProductImage() {
+    if (!currentProduct || galleryImages.length === 0) return;
+    if (!confirm('Are you sure you want to delete the selected image?')) return;
+
+    try {
+      const updatedImages = galleryImages.filter((_, i) => i !== galleryIndex);
+
+      const res = await api(`/admin/products/${currentProduct.id}/images`, 'PUT', { images: updatedImages });
+      if (res.ok) {
+        galleryImages = updatedImages;
+        galleryIndex = Math.max(0, galleryIndex - 1);
+        updateGallery();
+        
+        // Regenerate thumbnails
+        const thumbsEl = document.getElementById('galleryThumbs');
+        if (galleryImages.length > 1) {
+          thumbsEl.innerHTML = galleryImages.map((imgUrl, i) =>
+            `<img class="gallery-thumb ${i === galleryIndex ? 'active' : ''}" src="/proxy-image?url=${encodeURIComponent(imgUrl)}" onclick="galleryGoTo(${i})" loading="lazy" onerror="this.style.display='none'">`
+          ).join('');
+          thumbsEl.style.display = 'flex';
+        } else {
+          thumbsEl.style.display = 'none';
+          thumbsEl.innerHTML = '';
+        }
+        
+        const showNav = galleryImages.length > 1;
+        document.querySelector('.gallery-nav.prev').style.display = showNav ? 'flex' : 'none';
+        document.querySelector('.gallery-nav.next').style.display = showNav ? 'flex' : 'none';
+
+        toast('Image deleted from gallery', 'success');
+        
+        currentProduct.images = galleryImages;
+        currentProduct.imageUrl = galleryImages[0] || null;
+        
+        loadProducts(currentPage);
+      }
+    } catch (err) {
+      toast(`Failed to delete image: ${err.message}`, 'error');
+    }
+  }
+
 
 </script>
 

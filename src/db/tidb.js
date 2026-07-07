@@ -159,7 +159,7 @@ export async function getAllProducts({ limit = 30, offset = 0, search = '' } = {
             ${COLUMNS.createdAt} AS createdAt
      FROM ${TABLE}
      ${whereClause}
-     ORDER BY ${COLUMNS.serialNo} ASC, ${COLUMNS.createdAt} DESC
+     ORDER BY ${COLUMNS.createdAt} DESC
      LIMIT ? OFFSET ?`,
     params
   );
@@ -188,3 +188,21 @@ export async function getProductStats() {
   );
   return rows[0] ?? { total: 0, inStock: 0, outOfStock: 0, onSale: 0 };
 }
+
+/**
+ * Update the images list for a product.
+ * Sets the 'images' JSON column and updates the legacy 'image_url' to the first image.
+ */
+export async function updateProductImages(productId, imagesArray) {
+  const db = getTiDBPool();
+  const firstImage = imagesArray.length > 0 ? imagesArray[0] : null;
+  const jsonStr = JSON.stringify(imagesArray);
+
+  await db.execute(
+    `UPDATE ${TABLE}
+     SET ${COLUMNS.images} = ?, ${COLUMNS.imageUrl} = ?
+     WHERE ${COLUMNS.id} = ?`,
+    [jsonStr, firstImage, productId]
+  );
+}
+
