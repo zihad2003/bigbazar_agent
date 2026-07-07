@@ -139,10 +139,11 @@
     /* ── Stats row ──────────────────────────────────────────────────────── */
     .stats-row {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 14px;
     }
 
+    @media (max-width: 900px) { .stats-row { grid-template-columns: repeat(3,1fr); } }
     @media (max-width: 700px) { .stats-row { grid-template-columns: repeat(2,1fr); } }
 
     @media (max-width: 600px) {
@@ -433,6 +434,291 @@
       75% { transform: rotate(4deg); }
       85% { transform: rotate(-2deg); }
     }
+
+    /* ── Product Grid ───────────────────────────────────────────────── */
+    .product-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: 16px;
+      padding: 20px;
+    }
+
+    @media (max-width: 600px) {
+      .product-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 12px; }
+    }
+
+    .product-card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all 0.22s ease;
+      position: relative;
+    }
+    .product-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-3px);
+      box-shadow: 0 8px 24px rgba(99,102,241,0.12);
+    }
+
+    .product-card-img {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      object-fit: cover;
+      background: var(--bg);
+      display: block;
+    }
+
+    .product-card-body {
+      padding: 12px;
+    }
+
+    .product-card-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+
+    .product-card-price {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--cyan);
+    }
+
+    .product-card-price .original {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--muted);
+      text-decoration: line-through;
+      margin-left: 6px;
+    }
+
+    .product-card-meta {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 6px;
+      flex-wrap: wrap;
+    }
+
+    .product-card-badges {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .fbadge {
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .fbadge-sale  { background: rgba(239,68,68,0.9);  color: #fff; }
+    .fbadge-hot   { background: rgba(245,158,11,0.9); color: #fff; }
+    .fbadge-new   { background: rgba(16,185,129,0.9); color: #fff; }
+    .fbadge-out   { background: rgba(107,114,128,0.9); color: #fff; }
+
+    /* ── Product Search Bar ─────────────────────────────────────────── */
+    .product-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+
+    .search-input {
+      flex: 1;
+      min-width: 180px;
+      height: 38px;
+      padding: 0 14px;
+      background: var(--surface-2);
+      border: 1px solid var(--border-2);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      transition: border-color 0.2s;
+    }
+    .search-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+    .search-input::placeholder { color: var(--muted); }
+
+    .product-count {
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    /* ── Pagination ─────────────────────────────────────────────────── */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+    }
+
+    .page-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 34px;
+      height: 34px;
+      padding: 0 8px;
+      border-radius: 7px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid var(--border-2);
+      background: transparent;
+      color: var(--muted-2);
+      transition: all 0.18s;
+    }
+    .page-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+    .page-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* ── Product Detail Modal ───────────────────────────────────────── */
+    .detail-modal {
+      width: min(680px, 94vw);
+      max-height: 90vh;
+    }
+
+    .gallery-wrap {
+      position: relative;
+      background: var(--bg);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+
+    .gallery-main-img {
+      width: 100%;
+      max-height: 420px;
+      object-fit: contain;
+      display: block;
+      background: #0a0e16;
+    }
+
+    .gallery-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: #fff;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.2s;
+      z-index: 2;
+    }
+    .gallery-nav:hover { background: rgba(99,102,241,0.7); }
+    .gallery-nav.prev { left: 10px; }
+    .gallery-nav.next { right: 10px; }
+
+    .gallery-counter {
+      position: absolute;
+      bottom: 10px;
+      right: 12px;
+      background: rgba(0,0,0,0.65);
+      color: #fff;
+      font-size: 11px;
+      padding: 3px 9px;
+      border-radius: 99px;
+      font-weight: 600;
+    }
+
+    .gallery-thumbs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding: 8px 0;
+    }
+
+    .gallery-thumb {
+      width: 56px;
+      height: 56px;
+      border-radius: 6px;
+      object-fit: cover;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: border-color 0.15s;
+      flex-shrink: 0;
+      opacity: 0.6;
+    }
+    .gallery-thumb:hover, .gallery-thumb.active {
+      border-color: var(--accent);
+      opacity: 1;
+    }
+
+    .detail-info {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin: 16px 0;
+    }
+    @media (max-width: 500px) { .detail-info { grid-template-columns: 1fr; } }
+
+    .detail-field {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .detail-field-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      margin-bottom: 3px;
+    }
+    .detail-field-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .detail-desc {
+      font-size: 13px;
+      color: var(--muted-2);
+      line-height: 1.6;
+      padding: 12px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+
+    .detail-video {
+      width: 100%;
+      max-height: 300px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      background: #000;
+    }
   </style>
 </head>
 <body>
@@ -487,6 +773,10 @@
         <div class="stat-value amber" id="statPaused">—</div>
       </div>
       <div class="stat-card">
+        <div class="stat-label">Total Products</div>
+        <div class="stat-value" id="statProducts" style="color:var(--accent);">—</div>
+      </div>
+      <div class="stat-card">
         <div class="stat-label">Total Orders</div>
         <div class="stat-value" id="statOrders">—</div>
       </div>
@@ -500,6 +790,7 @@
     <div class="panel">
       <div class="tabs">
         <button class="tab active" data-tab="convos">Conversations</button>
+        <button class="tab" data-tab="products">Products</button>
         <button class="tab" data-tab="orders">Orders</button>
         <button class="tab" data-tab="training">Training</button>
         <button class="tab" data-tab="knowledge">Knowledge Base</button>
@@ -524,6 +815,18 @@
             </tbody>
           </table>
         </div>
+      </div>
+
+      <!-- Products tab -->
+      <div class="tab-body" id="tab-products">
+        <div class="product-toolbar">
+          <input type="text" class="search-input" id="productSearch" placeholder="Search products (e.g. saree, kurti, 3piece)..." oninput="debounceProductSearch()">
+          <span class="product-count" id="productCount"></span>
+        </div>
+        <div class="product-grid" id="productGrid">
+          <div class="empty" style="grid-column:1/-1;">Loading products...</div>
+        </div>
+        <div class="pagination" id="productPagination"></div>
       </div>
 
       <!-- Orders tab -->
@@ -782,6 +1085,32 @@
   </div>
 </div>
 
+<!-- Product Detail Modal -->
+<div class="overlay" id="overlayProduct">
+  <div class="modal detail-modal">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px;">
+      <div>
+        <h2 id="detailName" style="font-size:18px;">Product</h2>
+        <div id="detailCategory" style="font-size:12px; color:var(--muted); margin-top:2px;"></div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('overlayProduct')" style="flex-shrink:0;">Close</button>
+    </div>
+    <div class="gallery-wrap" id="galleryWrap">
+      <img id="galleryMainImg" class="gallery-main-img" src="" alt="Product">
+      <button class="gallery-nav prev" onclick="galleryPrev()">&lsaquo;</button>
+      <button class="gallery-nav next" onclick="galleryNext()">&rsaquo;</button>
+      <div class="gallery-counter" id="galleryCounter">1 / 1</div>
+    </div>
+    <div class="gallery-thumbs" id="galleryThumbs"></div>
+    <div id="detailVideo"></div>
+    <div id="detailDesc"></div>
+    <div class="detail-info" id="detailInfo"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+      <button class="btn btn-ghost btn-sm" id="btnCopyLink" onclick="copyProductLink()">Copy Storefront Link</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
@@ -789,6 +1118,14 @@
   // ── State ─────────────────────────────────────────────────────────────────
   let conversations = [];
   let orders        = [];
+  let allProducts   = [];
+  let currentPage   = 1;
+  let totalPages    = 1;
+  let productSearchQuery = '';
+  let productSearchTimer = null;
+  let galleryImages = [];
+  let galleryIndex  = 0;
+  let currentProduct = null;
   let refreshTimer  = null;
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -842,11 +1179,12 @@
     document.querySelectorAll('.tab-body').forEach(el => el.classList.toggle('active', el.id === `tab-${id}`));
     if (id === 'training') loadTraining();
     if (id === 'knowledge') loadKnowledge();
+    if (id === 'products') loadProducts();
   }
 
   // ── Refresh ───────────────────────────────────────────────────────────────
   async function refreshAll() {
-    await Promise.all([ loadSettings(), loadConversations(), loadOrders() ]);
+    await Promise.all([ loadSettings(), loadConversations(), loadOrders(), loadProductStats() ]);
     const now = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
     document.getElementById('lastRefreshNote').textContent = `Updated ${now}`;
   }
@@ -1370,6 +1708,302 @@
     el.textContent = msg;
     el.className = `toast ${type} show`;
     setTimeout(() => el.classList.remove('show'), 2800);
+  }
+
+  // ── Products (TiDB Catalog) ──────────────────────────────────────────────
+
+  async function loadProductStats() {
+    try {
+      const stats = await api('/admin/products/stats');
+      document.getElementById('statProducts').textContent = stats.total ?? '—';
+    } catch (err) {
+      console.warn('Product stats failed:', err.message);
+      document.getElementById('statProducts').textContent = '—';
+    }
+  }
+
+  async function loadProducts(page = 1) {
+    const grid = document.getElementById('productGrid');
+    const paginationEl = document.getElementById('productPagination');
+    const countEl = document.getElementById('productCount');
+    currentPage = page;
+
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">Loading products...</div>';
+    paginationEl.innerHTML = '';
+
+    try {
+      const params = new URLSearchParams({ page, limit: 24 });
+      if (productSearchQuery) params.set('search', productSearchQuery);
+
+      const data = await api(`/admin/products?${params}`);
+      allProducts = data.products || [];
+      totalPages = data.totalPages || 1;
+
+      countEl.textContent = `${data.total} product${data.total !== 1 ? 's' : ''}`;
+
+      if (!allProducts.length) {
+        grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">No products found.</div>';
+        return;
+      }
+
+      const storefrontUrl = 'https://bigbazarbariarhat.com';
+
+      grid.innerHTML = allProducts.map((p, i) => {
+        // Parse images array
+        let imgs = [];
+        try {
+          if (typeof p.images === 'string') imgs = JSON.parse(p.images);
+          else if (Array.isArray(p.images)) imgs = p.images;
+        } catch (_) {}
+
+        const thumb = (imgs.length > 0 ? imgs[0] : p.imageUrl) || '';
+        const thumbSrc = thumb
+          ? `/proxy-image?url=${encodeURIComponent(thumb)}`
+          : 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" fill="%23151d2e"><rect width="200" height="200"/><text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" fill="%236b7280" font-family="sans-serif" font-size="14">No Image</text></svg>');
+
+        const price = p.price ?? '—';
+        const originalPrice = p.originalPrice && Number(p.originalPrice) > Number(p.price)
+          ? `<span class="original">${e(String(p.originalPrice))}</span>`
+          : '';
+
+        const stock = Number(p.stock) || 0;
+        const stockBadge = stock > 0
+          ? `<span class="badge badge-green" style="font-size:10px;">In Stock (${stock})</span>`
+          : `<span class="badge badge-red" style="font-size:10px;">Out of Stock</span>`;
+
+        const catBadge = p.category
+          ? `<span class="badge badge-purple" style="font-size:10px;">${e(p.category)}</span>`
+          : '';
+
+        let featureBadges = '';
+        if (p.isSale)   featureBadges += '<span class="fbadge fbadge-sale">Sale</span>';
+        if (p.isHot)    featureBadges += '<span class="fbadge fbadge-hot">Hot</span>';
+        if (p.isNew)    featureBadges += '<span class="fbadge fbadge-new">New</span>';
+        if (p.isSoldOut || stock === 0) featureBadges += '<span class="fbadge fbadge-out">Sold Out</span>';
+
+        const imgCount = imgs.length;
+        const imgCountBadge = imgCount > 1
+          ? `<span style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.65);color:#fff;font-size:10px;padding:2px 7px;border-radius:99px;font-weight:600;">${imgCount} photos</span>`
+          : '';
+
+        return `<div class="product-card" onclick="openProductDetail(${i})">
+          <div style="position:relative;">
+            <img class="product-card-img" src="${thumbSrc}" alt="${e(p.name)}" loading="lazy" onerror="this.style.display='none'">
+            ${featureBadges ? `<div class="product-card-badges">${featureBadges}</div>` : ''}
+            ${imgCountBadge}
+          </div>
+          <div class="product-card-body">
+            <div class="product-card-name" title="${e(p.name)}">${e(p.name)}</div>
+            <div class="product-card-price">${e(String(price))} ${originalPrice}</div>
+            <div class="product-card-meta">
+              ${stockBadge} ${catBadge}
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+
+      // Render pagination
+      if (totalPages > 1) {
+        let phtml = '';
+        phtml += `<button class="page-btn" onclick="loadProducts(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}>&laquo;</button>`;
+
+        const maxVisible = 7;
+        let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+        let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+        if (endPage - startPage < maxVisible - 1) startPage = Math.max(1, endPage - maxVisible + 1);
+
+        if (startPage > 1) {
+          phtml += `<button class="page-btn" onclick="loadProducts(1)">1</button>`;
+          if (startPage > 2) phtml += `<span style="color:var(--muted);padding:0 4px;">...</span>`;
+        }
+
+        for (let i = startPage; i <= endPage; i++) {
+          phtml += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="loadProducts(${i})">${i}</button>`;
+        }
+
+        if (endPage < totalPages) {
+          if (endPage < totalPages - 1) phtml += `<span style="color:var(--muted);padding:0 4px;">...</span>`;
+          phtml += `<button class="page-btn" onclick="loadProducts(${totalPages})">${totalPages}</button>`;
+        }
+
+        phtml += `<button class="page-btn" onclick="loadProducts(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}>&raquo;</button>`;
+        paginationEl.innerHTML = phtml;
+      }
+
+    } catch (err) {
+      console.error('Products load error:', err);
+      grid.innerHTML = `<div class="empty" style="grid-column:1/-1; color:var(--red);">Failed to load products: ${e(err.message)}</div>`;
+    }
+  }
+
+  function debounceProductSearch() {
+    clearTimeout(productSearchTimer);
+    productSearchTimer = setTimeout(() => {
+      productSearchQuery = document.getElementById('productSearch').value.trim();
+      loadProducts(1);
+    }, 400);
+  }
+
+  // ── Product Detail Modal ─────────────────────────────────────────────────
+
+  function openProductDetail(index) {
+    const p = allProducts[index];
+    if (!p) return;
+    currentProduct = p;
+
+    // Parse all available images
+    galleryImages = [];
+    try {
+      if (typeof p.images === 'string') galleryImages = JSON.parse(p.images);
+      else if (Array.isArray(p.images)) galleryImages = [...p.images];
+    } catch (_) {}
+    // Make sure imageUrl is included
+    if (p.imageUrl && !galleryImages.includes(p.imageUrl)) {
+      galleryImages.unshift(p.imageUrl);
+    }
+    // Filter out falsy values
+    galleryImages = galleryImages.filter(Boolean);
+    galleryIndex = 0;
+
+    // Header
+    document.getElementById('detailName').textContent = p.name || 'Unknown';
+    document.getElementById('detailCategory').textContent = p.category ? `Category: ${p.category}` : '';
+
+    // Gallery
+    updateGallery();
+
+    // Thumbnails
+    const thumbsEl = document.getElementById('galleryThumbs');
+    if (galleryImages.length > 1) {
+      thumbsEl.innerHTML = galleryImages.map((url, i) =>
+        `<img class="gallery-thumb ${i === 0 ? 'active' : ''}" src="/proxy-image?url=${encodeURIComponent(url)}" onclick="galleryGoTo(${i})" loading="lazy" onerror="this.style.display='none'">`
+      ).join('');
+      thumbsEl.style.display = 'flex';
+    } else {
+      thumbsEl.style.display = 'none';
+      thumbsEl.innerHTML = '';
+    }
+
+    // Hide/show gallery nav buttons
+    const showNav = galleryImages.length > 1;
+    document.querySelector('.gallery-nav.prev').style.display = showNav ? 'flex' : 'none';
+    document.querySelector('.gallery-nav.next').style.display = showNav ? 'flex' : 'none';
+
+    // Video
+    const videoEl = document.getElementById('detailVideo');
+    if (p.videoUrl) {
+      videoEl.innerHTML = `<video class="detail-video" controls preload="metadata"><source src="${e(p.videoUrl)}" type="video/mp4">Your browser does not support video.</video>`;
+    } else {
+      videoEl.innerHTML = '';
+    }
+
+    // Description
+    const descEl = document.getElementById('detailDesc');
+    if (p.description) {
+      descEl.innerHTML = `<div class="detail-desc">${e(p.description)}</div>`;
+    } else {
+      descEl.innerHTML = '';
+    }
+
+    // Info fields
+    const stock = Number(p.stock) || 0;
+    const price = p.price ?? '—';
+    let colors = '—', sizes = '—';
+    try {
+      const c = typeof p.colors === 'string' ? JSON.parse(p.colors) : p.colors;
+      if (Array.isArray(c) && c.length) colors = c.join(', ');
+    } catch (_) {}
+    try {
+      const s = typeof p.sizes === 'string' ? JSON.parse(p.sizes) : p.sizes;
+      if (Array.isArray(s) && s.length) sizes = s.join(', ');
+    } catch (_) {}
+
+    const originalPriceStr = p.originalPrice && Number(p.originalPrice) > Number(price)
+      ? `<span style="text-decoration:line-through;color:var(--muted);font-size:12px;margin-left:6px;">${e(String(p.originalPrice))}</span>`
+      : '';
+
+    let badges = '';
+    if (p.isSale) badges += '<span class="fbadge fbadge-sale" style="margin-right:4px;">Sale</span>';
+    if (p.isHot) badges += '<span class="fbadge fbadge-hot" style="margin-right:4px;">Hot</span>';
+    if (p.isNew) badges += '<span class="fbadge fbadge-new" style="margin-right:4px;">New</span>';
+
+    document.getElementById('detailInfo').innerHTML = `
+      <div class="detail-field">
+        <div class="detail-field-label">Price</div>
+        <div class="detail-field-value" style="color:var(--cyan);">${e(String(price))} ${originalPriceStr}</div>
+      </div>
+      <div class="detail-field">
+        <div class="detail-field-label">Stock</div>
+        <div class="detail-field-value" style="color:${stock > 0 ? 'var(--green)' : 'var(--red)'};">
+          ${stock > 0 ? `In Stock (${stock})` : 'Out of Stock'}
+        </div>
+      </div>
+      <div class="detail-field">
+        <div class="detail-field-label">Colors</div>
+        <div class="detail-field-value">${e(colors)}</div>
+      </div>
+      <div class="detail-field">
+        <div class="detail-field-label">Sizes</div>
+        <div class="detail-field-value">${e(sizes)}</div>
+      </div>
+      ${badges ? `<div class="detail-field" style="grid-column:1/-1;"><div class="detail-field-label">Badges</div><div class="detail-field-value">${badges}</div></div>` : ''}
+    `;
+
+    document.getElementById('overlayProduct').classList.add('open');
+  }
+
+  function updateGallery() {
+    const img = document.getElementById('galleryMainImg');
+    const counter = document.getElementById('galleryCounter');
+
+    if (galleryImages.length === 0) {
+      img.src = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" fill="#0a0e16"><rect width="400" height="300"/><text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" fill="#6b7280" font-family="sans-serif" font-size="16">No Image</text></svg>');
+      counter.textContent = '0 / 0';
+      return;
+    }
+
+    img.src = `/proxy-image?url=${encodeURIComponent(galleryImages[galleryIndex])}`;
+    counter.textContent = `${galleryIndex + 1} / ${galleryImages.length}`;
+
+    // Update active thumbnail
+    document.querySelectorAll('.gallery-thumb').forEach((th, i) => {
+      th.classList.toggle('active', i === galleryIndex);
+    });
+  }
+
+  function galleryPrev() {
+    if (galleryImages.length <= 1) return;
+    galleryIndex = (galleryIndex - 1 + galleryImages.length) % galleryImages.length;
+    updateGallery();
+  }
+
+  function galleryNext() {
+    if (galleryImages.length <= 1) return;
+    galleryIndex = (galleryIndex + 1) % galleryImages.length;
+    updateGallery();
+  }
+
+  function galleryGoTo(i) {
+    galleryIndex = i;
+    updateGallery();
+  }
+
+  function copyProductLink() {
+    if (!currentProduct) return;
+    const storefrontUrl = 'https://bigbazarbariarhat.com';
+    const link = `${storefrontUrl}/products/${currentProduct.id}`;
+    navigator.clipboard.writeText(link).then(() => {
+      toast('Product link copied!', 'success');
+    }).catch(() => {
+      // Fallback for older browsers
+      const ta = document.createElement('textarea');
+      ta.value = link;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      toast('Product link copied!', 'success');
+    });
   }
 
 </script>

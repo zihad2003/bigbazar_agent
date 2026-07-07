@@ -11,6 +11,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus, saveTrainingExample, getTrainingExamples, deleteTrainingExample, getKnowledgeEntries, saveKnowledgeEntry, updateKnowledgeEntry, deleteKnowledgeEntry, deleteConversation, deleteOrder, updateTrainingExample, createManualOrder } from '../services/d1.js';
+import { getAllProducts, getProductStats } from '../db/tidb.js';
 
 export const adminRouter = Router();
 
@@ -231,6 +232,38 @@ adminRouter.put('/training/:id', async (req, res) => {
     await updateTrainingExample(req.params.id, { customerMessage, wrongBotReply, correctReply });
     res.json({ ok: true });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Products (TiDB — read-only catalog) ───────────────────────────────────────
+adminRouter.get('/products', async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 24));
+    const search = req.query.search || '';
+    const offset = (page - 1) * limit;
+
+    const data = await getAllProducts({ limit, offset, search });
+    res.json({
+      products: data.products,
+      total: data.total,
+      page,
+      limit,
+      totalPages: Math.ceil(data.total / limit),
+    });
+  } catch (error) {
+    console.error('Products fetch error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.get('/products/stats', async (_req, res) => {
+  try {
+    const stats = await getProductStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Product stats error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
