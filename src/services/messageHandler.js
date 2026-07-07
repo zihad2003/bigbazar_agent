@@ -229,11 +229,19 @@ export async function handleMessage(event, baseUrl = '') {
         const customerAddress = (aiResult.customerAddress || conversation.order_address || '').trim();
         const customerPhone = (aiResult.customerPhone || conversation.order_phone || '').trim();
 
-        const finalProductName = conversation.pending_product_name || aiResult.productName || 'সুতি শাড়ি';
-        const finalProductPrice = Number(conversation.pending_product_price || aiResult.productPrice || 1200);
+        const finalProductName = conversation.pending_product_name || aiResult.productName;
+        const finalProductPrice = Number(conversation.pending_product_price || aiResult.productPrice);
         const finalVariant = conversation.pending_variant || aiResult.variant || null;
 
-        if (!customerName || !customerAddress || !customerPhone) {
+        if (!finalProductName || isNaN(finalProductPrice)) {
+          reply = `আপনি কোন প্রোডাক্টটি অর্ডার করতে চাচ্ছেন দয়া করে একটু বলবেন? তাহলে আমি সঠিক দামটি মিলিয়ে অর্ডারটি কনফার্ম করতে পারব।`;
+          stateUpdate = {
+            state: 'START_ORDER',
+            order_name: customerName || null,
+            order_address: customerAddress || null,
+            order_phone: customerPhone || null
+          };
+        } else if (!customerName || !customerAddress || !customerPhone) {
           // Fallback if AI marked CONFIRM_ORDER but missed any extraction details
           reply =
             `অর্ডারটি কনফার্ম করতে অনুগ্রহ করে নাম, মোবাইল নম্বর এবং সম্পূর্ণ ঠিকানা একসাথে দিন।\n\n` +

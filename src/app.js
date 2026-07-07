@@ -34,6 +34,27 @@ app.get('/proxy-image', async (req, res) => {
       return res.status(400).send('Missing url parameter');
     }
 
+    try {
+      const parsed = new URL(targetUrl);
+      const host = parsed.hostname.toLowerCase();
+      const whitelist = [
+        'bigbazarbariarhat.com',
+        'bigbazarbariarhat.pages.dev',
+        'instagram.com',
+        'cdninstagram.com',
+        'cloudinary.com',
+        'supabase.co',
+        'images.weserv.nl'
+      ];
+      const isAllowed = whitelist.some(domain => host === domain || host.endsWith('.' + domain));
+      if (!isAllowed) {
+        console.warn(`🔒 [Security Alert] Blocked SSRF attempt to non-whitelisted domain: ${host}`);
+        return res.status(403).send('Forbidden: Target domain is not whitelisted');
+      }
+    } catch (e) {
+      return res.status(400).send('Invalid url format');
+    }
+
     const imgRes = await fetch(targetUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'

@@ -93,7 +93,7 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
 
   messages.push({ role: 'user', content });
 
-  const response = await callGroqWithFallback(messages, 300, 0.5);
+  const response = await callGroqWithFallback(messages, 600, 0.5);
   const rawText = response.choices[0]?.message?.content || '';
 
   return parseAIResponse(rawText);
@@ -142,9 +142,26 @@ function parseAIResponse(rawText) {
   try {
     const control = JSON.parse(jsonPart);
     return { text, ...control };
-  } catch {
-    console.warn('⚠️  Failed to parse AI control block:', jsonPart);
-    return { text, intent: 'NONE' };
+  } catch (err) {
+    const isTruncated = jsonPart.startsWith('{') && !jsonPart.endsWith('}');
+    if (isTruncated) {
+      console.warn('⚠️ [Groq API] Truncated JSON detected! Raw jsonPart:', jsonPart);
+      // Try a simple regex fallback to extract intent from the truncated JSON
+      const intentMatch = jsonPart.match(/"intent"\s*:\s*"([^"]+)"/);
+      const productNameMatch = jsonPart.match(/"productName"\s*:\s*"([^"]+)"/);
+      const productPriceMatch = jsonPart.match(/"productPrice"\s*:\s*(\d+)/);
+      
+      const fallbackControl = { intent: 'NONE' };
+      if (intentMatch) fallbackControl.intent = intentMatch[1];
+      if (productNameMatch) fallbackControl.productName = productNameMatch[1];
+      if (productPriceMatch) fallbackControl.productPrice = Number(productPriceMatch[1]);
+      
+      console.log('🤖 [Groq API] Recovered partial parameters from truncated JSON:', fallbackControl);
+      return { text, ...fallbackControl, _isTruncated: true };
+    } else {
+      console.warn('⚠️ [Groq API] Malformed JSON detected! Raw jsonPart:', jsonPart);
+      return { text, intent: 'NONE' };
+    }
   }
 }
 
