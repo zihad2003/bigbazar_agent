@@ -8,7 +8,7 @@
  */
 
 import { searchProductsByText } from '../db/tidb.js';
-import { describeImage } from './groq.js';
+import { describeImage } from './ai.js';
 
 /**
  * Expand queries to map spelling variants of popular categories in the database.
@@ -135,5 +135,5 @@ export async function searchProducts(messageText, imageUrl, pendingProductName =
   }
 
   console.log(`🎯 [Product Search] Found ${uniqueProducts.length} unique products matching queries.`);
-  return uniqueProducts.slice(0, 6);
+  return uniqueProducts.slice(0, 3);
 }

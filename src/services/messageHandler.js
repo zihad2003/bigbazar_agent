@@ -10,7 +10,7 @@
  */
 
 import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId, getRelevantTrainingExamples, getActiveKnowledgeBase } from './d1.js';
-import { getAIReply } from './groq.js';
+import { getAIReply } from './ai.js';
 import { searchProducts } from './productSearch.js';
 import { saveOrder } from './orderService.js';
 import { sendMessage, sendImageMessage, sendTypingIndicator } from './messenger.js';
