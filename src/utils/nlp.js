@@ -23,37 +23,46 @@ export function detectHandoffIntent(text) {
 }
 
 // ── Product query detection ───────────────────────────────────────────────────
-// INVERTED LOGIC: We search TiDB by default. Only skip the DB for messages
-// that are clearly NOT product queries (greetings, payment messages, etc.).
-// This ensures Banglish/misspelled product queries always reach the database.
+// HUMAN SALES REP LOGIC:
+// Only query TiDB when customer explicitly asks about a product, price, stock,
+// clothing type, size, color, or photo.
+// Regular chat (greetings, shop location, delivery charges, bKash number,
+// giving name/address for order) skips TiDB entirely.
 
-// Messages that should SKIP the database
-const SKIP_DB_EXACT = [
-  // Greetings & typos
-  'হ্যালো', 'hello', 'hi', 'হাই', 'hlw', 'helo', 'hlo', 'hllo', 'hey', 'hy', 'hei',
-  'আসসালামু আলাইকুম', 'assalamu alaikum', 'asalamu alaikum', 'asalamualaikum', 'salam', 'সালাম', 'slm',
-  'ওয়ালাইকুম', 'walaikum', 'walaikum assalam', 'wasa',
-  // Thanks & acknowledgments
-  'ধন্যবাদ', 'thanks', 'thank you', 'shukriya',
-  'ঠিক আছে', 'ok', 'okay', 'আচ্ছা', 'জি', 'হ্যাঁ', 'yes', 'না', 'no',
-  // Goodbye
-  'বিদায়', 'bye', 'goodbye',
-  // Short affirmations / noise
-  'hmm', 'হুম', 'ki', 'কি', 'জ্বি', 'hm', 'humm', 'haa', 'ha',
+const PRODUCT_TYPES = [
+  // English & Banglish dress/apparel types
+  'saree', 'sari', 'shari', 'sadi', 'sarii', 'sare',
+  '3piece', '3pis', '3pic', '3 piece', 'three piece', 'three-piece', 'thripis', 'thri-piece',
+  '2piece', '2pis', '2pic', '2 piece', 'two piece', 'two-piece', 'twopis',
+  'kurti', 'kurtis', 'panjabi', 'punjabi', 'salwar', 'lehenga', 'lehenga', 'gown',
+  'dress', 'dresses', 'top', 'tops', 'skirt', 'genji', 'tshirt', 't-shirt', 'shirt',
+  'pant', 'pants', 'jama', 'poshak', 'kapor', 'orna', 'dupatta', 'hijab', 'borka', 'burqa',
+  'bag', 'bags', 'juta', 'shoes', 'sandal', 'sandals', 'jewelry',
+
+  // Bengali script dress types
+  'শাড়ি', 'শাড়ি', 'থ্রি-পিস', 'থ্রিপিস', 'টুপিস', 'টু-পিস', 'কুর্তি', 'পাঞ্জাবি',
+  'সালোয়ার', 'লেহেঙ্গা', 'লেহেংগা', 'গাউন', 'ড্রেস', 'টপ', 'স্কার্ট', 'গেঞ্জি',
+  'টি-শার্ট', 'শার্ট', 'প্যান্ট', 'জামা', 'পোশাক', 'কাপড়', 'ওড়না', 'হিজাব', 'বোরকা',
+  'ব্যাগ', 'জুতা', 'স্যান্ডেল', 'গহনা', 'গয়না',
 ];
 
-// Payment-related keywords — these shouldn't trigger product search
-const PAYMENT_KEYWORDS = [
-  'paid', 'পেইড', 'পেমেন্ট', 'bkash', 'বিকাশ', 'nagad', 'নগদ',
-  'পাঠিয়েছি', 'পাঠালাম', 'দিলাম', 'send money', 'sent',
-  'transaction', 'ট্রানজেকশন', 'last digit', 'লাস্ট ডিজিট',
+const INTENT_SIGNALS = [
+  // Price / Cost queries
+  'dam', 'price', 'koto', 'কত', 'দাম', 'টাকা', 'দাম কত', 'কত টাকা', 'কত দাম', 'কত পরবে',
+  // Availability / Stock
+  'stock', 'available', 'ache', 'আছে', 'পাবো', 'পাওয়া যাবে', 'পাওয়া যাবে', 'স্টক',
+  // Photos / Designs
+  'chobi', 'cobi', 'pic', 'picture', 'photo', 'dekhi', 'dekhao', 'dekhon',
+  'ছবি', 'পিক', 'পিকচার', 'ফটো', 'দেখান', 'দেখাও', 'দেখতে চাই', 'ছবি পাঠান',
+  // Details (size, color, material)
+  'size', 'সাইজ', 'color', 'colour', 'কালার', 'রং', 'রঙ', 'design', 'ডিজাইন', 'material',
+  // Catalog / Collection
+  'collection', 'catalogue', 'catalog', 'latest', 'new arrival', 'নতুন', 'কালেকশন', 'ক্যাটালগ',
 ];
 
 /**
- * Returns true if the message likely contains a product inquiry.
- * Call this BEFORE querying TiDB to avoid unnecessary DB hits.
- *
- * INVERTED LOGIC: returns true by default, false only for known non-product messages.
+ * Returns true if the message is explicitly about a product inquiry or catalog search.
+ * Mimics human rep behavior — skips DB for general chat, shop info, delivery, bKash, etc.
  *
  * @param {string} text
  * @returns {boolean}
@@ -63,28 +72,14 @@ export function isProductQuery(text) {
 
   const lower = text.toLowerCase().trim();
 
-  // If very short (<= 2 chars) and not a recognized 2-char token, skip DB
-  if (lower.length <= 2 && !['3p', '2p'].includes(lower)) {
-    return false;
-  }
+  // If message contains any explicit product type (e.g. saree, kurti, 3pis)
+  const hasProductType = PRODUCT_TYPES.some(pt => lower.includes(pt));
 
-  // If it's just a short greeting/acknowledgment, skip DB
-  if (SKIP_DB_EXACT.some(g => lower === g || lower === g + '!' || lower === g + '?')) {
-    return false;
-  }
+  // If message contains intent signals (e.g. dam koto, ache ki, pic dekhi)
+  const hasIntentSignal = INTENT_SIGNALS.some(sig => lower.includes(sig));
 
-  // If it's a payment message, skip DB
-  if (PAYMENT_KEYWORDS.some(kw => lower.includes(kw))) {
-    return false;
-  }
-
-  // If it looks like just a phone number or digits (payment reference), skip DB
-  if (/^[\d০-৯\s\-+().]{4,15}$/.test(lower)) {
-    return false;
-  }
-
-  // Everything else → search the DB (this catches Banglish, misspellings, etc.)
-  return true;
+  // Query DB only if customer mentions a product type OR asks a product/price/photo question
+  return hasProductType || hasIntentSignal;
 }
 
 // ── Bengali digit conversion ──────────────────────────────────────────────────
