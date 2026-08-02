@@ -8,14 +8,14 @@
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-const DEFAULT_PRIMARY = 'gemini-3.5-flash-lite';
+const DEFAULT_PRIMARY = 'gemini-flash-lite-latest';
 const DEFAULT_FALLBACK = 'gemini-flash-lite-latest';
 
 /** Models that are deprecated, quota-blocked, or unavailable — auto-upgrade at startup */
 const BLOCKED_MODELS = new Set([
   'gemini-1.5-flash', 'gemini-1.5-pro',
   'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite', 'gemini-2.0-flash-lite-001',
-  'gemini-2.5-flash', 'gemini-2.5-flash-lite',
+  'gemini-3.5-flash-lite',
 ]);
 
 function resolveModel(envValue, defaultModel) {
@@ -225,6 +225,15 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
 
   const response = await callGemini(payload);
   const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+  if (!rawText.trim()) {
+    const finishReason = response.candidates?.[0]?.finishReason || 'UNKNOWN';
+    console.warn(`⚠️ [Gemini API] Returned empty response. finishReason: ${finishReason}`);
+    return {
+      reply: 'দুঃখিত, একটু কারিগরি সমস্যা হচ্ছে। দয়া করে আবার মেসেজ দিন।',
+      intent: 'NONE',
+    };
+  }
 
   return parseAIResponse(rawText);
 }
