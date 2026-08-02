@@ -2207,6 +2207,46 @@
   }
 
 
+
+    // ── Add Product ────────────────────────────────────────────────────────
+    function openAddProductModal() {
+      document.getElementById('add-product-overlay').classList.add('open');
+    }
+    
+    function closeAddProductModal() {
+      document.getElementById('add-product-overlay').classList.remove('open');
+      document.getElementById('add-product-form').reset();
+    }
+    
+    document.getElementById('add-product-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-save-product');
+      btn.textContent = 'Saving...';
+      btn.disabled = true;
+      
+      const payload = {
+        name: document.getElementById('add-product-name').value,
+        price: document.getElementById('add-product-price').value,
+        stock: document.getElementById('add-product-stock').value,
+        category: document.getElementById('add-product-category').value,
+        imageUrl: document.getElementById('add-product-image').value
+      };
+      
+      try {
+        await api('/admin/products', 'POST', payload);
+        showToast('Product added successfully!', 'success');
+        closeAddProductModal();
+        loadProducts(1);
+        loadProductStats();
+      } catch (err) {
+        showToast('Error adding product', 'error');
+        console.error(err);
+      } finally {
+        btn.textContent = 'Save Product';
+        btn.disabled = false;
+      }
+    });
+
 </script>
 
   <!-- Add Product Modal -->
