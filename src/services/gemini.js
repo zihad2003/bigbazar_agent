@@ -31,27 +31,42 @@ const AI_REPLY_SCHEMA = {
 };
 
 /**
- * Fetch helper for Gemini REST API
+ * Fetch helper for Gemini REST API with automatic model fallback
  */
-async function callGemini(payload) {
+async function callGemini(payload, modelName = PRIMARY_MODEL) {
   if (!GEMINI_API_KEY) {
     throw new Error('Missing GEMINI_API_KEY in environment variables.');
   }
 
-  const res = await fetch(`${BASE_URL}?key=${GEMINI_API_KEY}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`;
 
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(`Gemini API Error: ${data.error?.message || res.statusText}`);
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = data.error?.message || res.statusText;
+      if (modelName !== FALLBACK_MODEL && (msg.includes('model') || msg.includes('unexpected model name format'))) {
+        console.warn(`⚠️ [Gemini API] Primary model "${modelName}" failed (${msg}). Retrying with fallback model "${FALLBACK_MODEL}"...`);
+        return await callGemini(payload, FALLBACK_MODEL);
+      }
+      throw new Error(`Gemini API Error: ${msg}`);
+    }
+
+    return data;
+  } catch (err) {
+    if (modelName !== FALLBACK_MODEL) {
+      console.warn(`⚠️ [Gemini API] Error on model "${modelName}": ${err.message}. Retrying with "${FALLBACK_MODEL}"...`);
+      return await callGemini(payload, FALLBACK_MODEL);
+    }
+    throw err;
   }
-
-  return data;
 }
 
 /**
