@@ -909,10 +909,10 @@
       <!-- Products tab -->
       <div class="tab-body" id="tab-products">
               <div class="product-toolbar">
-        <input type="text" id="product-search" class="search-input" placeholder="Search products..." onkeyup="if(event.key==='Enter') loadProducts(1)">
+        <input type="text" id="productSearch" class="search-input" placeholder="Search products..." oninput="debounceProductSearch()" onkeyup="if(event.key==='Enter') loadProducts(1)">
         <button class="btn btn-primary" onclick="loadProducts(1)">Search</button>
         <button class="btn btn-primary" style="margin-left: auto;" onclick="openAddProductModal()">+ Add Product</button>
-        <div class="product-count" id="product-count">0 items</div>
+        <div class="product-count" id="productCount">0 items</div>
       </div>
         <div class="product-grid" id="productGrid">
           <div class="empty" style="grid-column:1/-1;">Loading products...</div>
@@ -1844,7 +1844,7 @@
       allProducts = data.products || [];
       totalPages = data.totalPages || 1;
 
-      countEl.textContent = `${data.total} product${data.total !== 1 ? 's' : ''}`;
+      if (countEl) countEl.textContent = `${data.total} product${data.total !== 1 ? 's' : ''}`;
 
       if (!allProducts.length) {
         grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">No products found.</div>';
