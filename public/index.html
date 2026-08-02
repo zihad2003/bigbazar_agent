@@ -2205,24 +2205,26 @@
       toast(`Failed to delete image: ${err.message}`, 'error');
     }
   }
-
-
-
-    // ── Add Product ────────────────────────────────────────────────────────
+    // ── Add Product Functions ─────────────────────────────────────────────
     function openAddProductModal() {
-      document.getElementById('add-product-overlay').classList.add('open');
+      const modal = document.getElementById('add-product-overlay');
+      if (modal) modal.classList.add('open');
     }
     
     function closeAddProductModal() {
-      document.getElementById('add-product-overlay').classList.remove('open');
-      document.getElementById('add-product-form').reset();
+      const modal = document.getElementById('add-product-overlay');
+      if (modal) modal.classList.remove('open');
+      const form = document.getElementById('add-product-form');
+      if (form) form.reset();
     }
     
-    document.getElementById('add-product-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
+    async function handleAddProduct(e) {
+      if (e) e.preventDefault();
       const btn = document.getElementById('btn-save-product');
-      btn.textContent = 'Saving...';
-      btn.disabled = true;
+      if (btn) {
+        btn.textContent = 'Saving...';
+        btn.disabled = true;
+      }
       
       const payload = {
         name: document.getElementById('add-product-name').value,
@@ -2234,28 +2236,29 @@
       
       try {
         await api('/admin/products', 'POST', payload);
-        showToast('Product added successfully!', 'success');
+        toast('Product added successfully!', 'success');
         closeAddProductModal();
-        loadProducts(1);
-        loadProductStats();
+        await loadProducts(1);
+        await loadProductStats();
       } catch (err) {
-        showToast('Error adding product', 'error');
+        toast(`Error adding product: ${err.message}`, 'error');
         console.error(err);
       } finally {
-        btn.textContent = 'Save Product';
-        btn.disabled = false;
+        if (btn) {
+          btn.textContent = 'Save Product';
+          btn.disabled = false;
+        }
       }
-    });
+    }
 
 </script>
-
   <!-- Add Product Modal -->
   <div id="add-product-overlay" class="overlay">
     <div class="modal">
       <h2>Add New Product</h2>
       <p>Enter the product details below. Ensure the image URL is publicly accessible.</p>
       
-      <form id="add-product-form" class="main" style="gap: 16px;">
+      <form id="add-product-form" class="main" style="gap: 16px;" onsubmit="handleAddProduct(event)">
         <div class="field">
           <label>Product Name *</label>
           <input type="text" id="add-product-name" required placeholder="e.g., Stylish Blue Kurti">
