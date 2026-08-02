@@ -908,10 +908,12 @@
 
       <!-- Products tab -->
       <div class="tab-body" id="tab-products">
-        <div class="product-toolbar">
-          <input type="text" class="search-input" id="productSearch" placeholder="Search products (e.g. saree, kurti, 3piece)..." oninput="debounceProductSearch()">
-          <span class="product-count" id="productCount"></span>
-        </div>
+              <div class="product-toolbar">
+        <input type="text" id="product-search" class="search-input" placeholder="Search products..." onkeyup="if(event.key==='Enter') loadProducts(1)">
+        <button class="btn btn-primary" onclick="loadProducts(1)">Search</button>
+        <button class="btn btn-primary" style="margin-left: auto;" onclick="openAddProductModal()">+ Add Product</button>
+        <div class="product-count" id="product-count">0 items</div>
+      </div>
         <div class="product-grid" id="productGrid">
           <div class="empty" style="grid-column:1/-1;">Loading products...</div>
         </div>
@@ -2206,6 +2208,52 @@
 
 
 </script>
+
+  <!-- Add Product Modal -->
+  <div id="add-product-overlay" class="overlay">
+    <div class="modal">
+      <h2>Add New Product</h2>
+      <p>Enter the product details below. Ensure the image URL is publicly accessible.</p>
+      
+      <form id="add-product-form" class="main" style="gap: 16px;">
+        <div class="field">
+          <label>Product Name *</label>
+          <input type="text" id="add-product-name" required placeholder="e.g., Stylish Blue Kurti">
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div class="field">
+            <label>Price (৳) *</label>
+            <input type="number" id="add-product-price" required min="0" placeholder="0">
+          </div>
+          <div class="field">
+            <label>Initial Stock</label>
+            <input type="number" id="add-product-stock" value="10" min="0">
+          </div>
+        </div>
+        
+        <div class="field">
+          <label>Category *</label>
+          <select id="add-product-category" required>
+            <option value="Men">Men</option>
+            <option value="Women">Women</option>
+            <option value="Kids (Boys)">Kids (Boys)</option>
+            <option value="Kids (Girls)">Kids (Girls)</option>
+          </select>
+        </div>
+        
+        <div class="field">
+          <label>Image URL (Required for AI to send photos)</label>
+          <input type="url" id="add-product-image" placeholder="https://...">
+        </div>
+        
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" onclick="closeAddProductModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-product">Save Product</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
 </body>
 </html>

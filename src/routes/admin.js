@@ -269,6 +269,30 @@ adminRouter.get('/products/stats', async (_req, res) => {
   }
 });
 
+adminRouter.post('/products', async (req, res) => {
+  try {
+    const { name, price, category, stock, imageUrl } = req.body;
+    if (!name || price === undefined) {
+      return res.status(400).json({ error: 'Name and price are required' });
+    }
+    const product = {
+      id: crypto.randomUUID(),
+      name,
+      price: Number(price),
+      category,
+      stock_count: Number(stock) || 1,
+      image_url: imageUrl,
+      images: imageUrl ? [imageUrl] : [],
+      status: 'published'
+    };
+    await upsertD1Products([product]);
+    res.json({ success: true, product });
+  } catch (error) {
+    console.error('Add product error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 adminRouter.put('/products/:id/images', async (req, res) => {
   try {
     const { id } = req.params;
