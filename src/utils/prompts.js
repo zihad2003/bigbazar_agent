@@ -44,7 +44,7 @@ const BASE_PROMPT = `তুমি "বিগ বাজার বারিয়�
   "intent": "PRODUCT_FOUND | START_ORDER | CONFIRM_ORDER | HANDOFF | NONE",
   "productName": "পণ্যের নাম (যদি থাকে, না হলে খালি স্ট্রিং)",
   "productPrice": 0,
-  "variant": "ভ্যারিয়েন্ট (যদি থাকে, না হলে খালি স্ট্রিং)",
+  "variant": "রং/সাইজ (যদি থাকে, না হলে খালি স্ট্রিং)। কোনো ধরনের ব্যাখ্যা বা চিন্তাভাবনা এখানে লিখবে না।",
   "imageUrl": "পণ্যের ছবির URL (PRODUCT CONTEXT থেকে, না হলে খালি স্ট্রিং)",
   "customerName": "কাস্টমারের নাম (যদি দেয়, না হলে খালি স্ট্রিং)",
   "customerAddress": "কাস্টমারের ঠিকানা (যদি দেয়, না হলে খালি স্ট্রিং)",

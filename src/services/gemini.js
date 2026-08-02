@@ -7,8 +7,28 @@
  */
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const PRIMARY_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
-const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-flash-lite-latest';
+
+const DEFAULT_PRIMARY = 'gemini-3.5-flash-lite';
+const DEFAULT_FALLBACK = 'gemini-flash-lite-latest';
+
+/** Models that are deprecated, quota-blocked, or unavailable — auto-upgrade at startup */
+const BLOCKED_MODELS = new Set([
+  'gemini-1.5-flash', 'gemini-1.5-pro',
+  'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite', 'gemini-2.0-flash-lite-001',
+  'gemini-2.5-flash', 'gemini-2.5-flash-lite',
+]);
+
+function resolveModel(envValue, defaultModel) {
+  const model = (envValue || defaultModel).trim();
+  if (BLOCKED_MODELS.has(model)) {
+    console.warn(`⚠️ [Gemini API] Model "${model}" is deprecated or quota-blocked. Using "${defaultModel}" instead.`);
+    return defaultModel;
+  }
+  return model;
+}
+
+const PRIMARY_MODEL = resolveModel(process.env.GEMINI_MODEL, DEFAULT_PRIMARY);
+const FALLBACK_MODEL = resolveModel(process.env.GEMINI_FALLBACK_MODEL, DEFAULT_FALLBACK);
 
 /** Classify Gemini API errors for correct fallback behavior */
 function classifyGeminiError(msg) {
@@ -35,15 +55,15 @@ function shouldTryGeminiFallback(errorType, modelName) {
 const AI_REPLY_SCHEMA = {
   type: 'OBJECT',
   properties: {
-    reply:           { type: 'STRING', description: 'Customer-facing reply text in Bengali' },
+    reply:           { type: 'STRING', description: 'Short Bengali reply to customer (max 2-3 sentences)' },
     intent:          { type: 'STRING', description: 'One of: PRODUCT_FOUND, START_ORDER, CONFIRM_ORDER, HANDOFF, NONE', enum: ['PRODUCT_FOUND', 'START_ORDER', 'CONFIRM_ORDER', 'HANDOFF', 'NONE'] },
-    productName:     { type: 'STRING', description: 'Product name if applicable, empty string otherwise' },
-    productPrice:    { type: 'NUMBER', description: 'Product price in BDT if applicable, 0 otherwise' },
-    variant:         { type: 'STRING', description: 'Product variant (color, size) if applicable, empty string otherwise' },
-    imageUrl:        { type: 'STRING', description: 'Product image URL from PRODUCT CONTEXT, empty string otherwise' },
-    customerName:    { type: 'STRING', description: 'Customer name if provided, empty string otherwise' },
-    customerAddress: { type: 'STRING', description: 'Customer address if provided, empty string otherwise' },
-    customerPhone:   { type: 'STRING', description: 'Customer phone if provided, empty string otherwise' },
+    productName:     { type: 'STRING', description: 'Exact product name from context only, else empty string ""' },
+    productPrice:    { type: 'NUMBER', description: 'Price in BDT from context, else 0' },
+    variant:         { type: 'STRING', description: 'Color/size only, else empty string "". Never put explanations.' },
+    imageUrl:        { type: 'STRING', description: 'Image URL from PRODUCT CONTEXT only, else empty string ""' },
+    customerName:    { type: 'STRING', description: 'Customer name if provided, else empty string ""' },
+    customerAddress: { type: 'STRING', description: 'Customer address if provided, else empty string ""' },
+    customerPhone:   { type: 'STRING', description: 'Customer phone if provided, else empty string ""' },
   },
   required: ['reply', 'intent'],
 };
@@ -196,8 +216,8 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
       parts: [{ text: systemPrompt }],
     },
     generationConfig: {
-      temperature: 0.5,
-      maxOutputTokens: 600,
+      temperature: 0.3,
+      maxOutputTokens: 1024,
       responseMimeType: 'application/json',
       responseSchema: AI_REPLY_SCHEMA,
     },
@@ -215,29 +235,51 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
  * but we still wrap in try/catch for safety.
  */
 function parseAIResponse(rawText) {
+  let cleanedText = rawText
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
   try {
-    const parsed = JSON.parse(rawText);
-    return {
-      reply: parsed.reply || '',
-      intent: parsed.intent || 'NONE',
-      productName: parsed.productName || undefined,
-      productPrice: parsed.productPrice || undefined,
-      variant: parsed.variant || undefined,
-      imageUrl: parsed.imageUrl || undefined,
-      customerName: parsed.customerName || undefined,
-      customerAddress: parsed.customerAddress || undefined,
-      customerPhone: parsed.customerPhone || undefined,
-    };
+    const parsed = JSON.parse(cleanedText);
+    return sanitizeParsedReply(parsed);
   } catch (err) {
     console.error(`🚨 [PARSE_FAILURE] [Gemini] Failed to parse AI response as JSON. Error: ${err.message}`);
-    console.error(`🚨 [PARSE_FAILURE] [Gemini] Raw response (first 500 chars): ${rawText.slice(0, 500)}`);
+    console.error(`🚨 [PARSE_FAILURE] [Gemini] Raw response (first 500 chars): ${cleanedText.slice(0, 500)}`);
 
-    // Last-resort fallback: try to extract reply text from the raw output
-    const cleaned = rawText
-      .replace(/<think>[\s\S]*?<\/think>/gi, '')
-      .replace(/<\/think>/g, '')
-      .trim();
+    // Regex fallback for truncated/malformed JSON (same approach as groq.js)
+    const intentMatch = cleanedText.match(/"intent"\s*:\s*"([^"]+)"/);
+    const replyMatch = cleanedText.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    const productNameMatch = cleanedText.match(/"productName"\s*:\s*"([^"]*)"/);
+    const productPriceMatch = cleanedText.match(/"productPrice"\s*:\s*(\d+)/);
 
-    return { reply: cleaned || 'দুঃখিত, একটু সমস্যা হচ্ছে। আবার চেষ্টা করুন।', intent: 'NONE' };
+    if (replyMatch) {
+      const fallback = {
+        reply: replyMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n'),
+        intent: intentMatch?.[1] || 'NONE',
+      };
+      if (productNameMatch?.[1]) fallback.productName = productNameMatch[1];
+      if (productPriceMatch) fallback.productPrice = Number(productPriceMatch[1]);
+      console.warn('🚨 [PARSE_FAILURE] [Gemini] Using regex fallback:', fallback);
+      return fallback;
+    }
+
+    return { reply: 'দুঃখিত, একটু সমস্যা হচ্ছে। আবার চেষ্টা করুন।', intent: 'NONE' };
   }
+}
+
+/** Strip overly long values the model sometimes puts in optional fields */
+function sanitizeParsedReply(parsed) {
+  const trim = (v, max = 120) => (typeof v === 'string' && v.length > max ? v.slice(0, max) : v);
+  return {
+    reply: parsed.reply || '',
+    intent: parsed.intent || 'NONE',
+    productName: trim(parsed.productName) || undefined,
+    productPrice: parsed.productPrice || undefined,
+    variant: trim(parsed.variant, 60) || undefined,
+    imageUrl: parsed.imageUrl || undefined,
+    customerName: trim(parsed.customerName) || undefined,
+    customerAddress: trim(parsed.customerAddress) || undefined,
+    customerPhone: trim(parsed.customerPhone) || undefined,
+  };
 }
