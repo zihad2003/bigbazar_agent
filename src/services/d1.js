@@ -345,3 +345,91 @@ export async function createManualOrder({ sender_id, customer_name, customer_add
   );
   return { id: result.meta.last_row_id };
 }
+
+// ── Products Cache (D1 Information Desk) ────────────────────────────────────
+
+export async function searchD1Products(query, limit = 5) {
+  const like = `%${query}%`;
+  const result = await executeQuery(
+    `SELECT id, name, price, category, image_url AS imageUrl, images, stock_count AS stock, colors, sizes
+     FROM products_cache
+     WHERE is_deleted = 0 AND (name LIKE ? OR category LIKE ?)
+     ORDER BY stock_count DESC
+     LIMIT ?`,
+    [like, like, Number(limit)]
+  );
+  return result?.results || [];
+}
+
+export async function getD1CatalogSnapshot(limit = 80) {
+  const result = await executeQuery(
+    `SELECT name, price, category, stock_count AS stock
+     FROM products_cache
+     WHERE is_deleted = 0
+     ORDER BY updated_at DESC
+     LIMIT ?`,
+    [Number(limit)]
+  );
+  return result?.results || [];
+}
+
+export async function upsertD1Products(products) {
+  if (!products || products.length === 0) return;
+  for (const p of products) {
+    await executeQuery(
+      `INSERT INTO products_cache (id, name, price, category, image_url, images, stock_count, colors, sizes, status, is_deleted, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         price = excluded.price,
+         category = excluded.category,
+         image_url = excluded.image_url,
+         images = excluded.images,
+         stock_count = excluded.stock_count,
+         colors = excluded.colors,
+         sizes = excluded.sizes,
+         status = excluded.status,
+         is_deleted = excluded.is_deleted,
+         updated_at = datetime('now')`,
+      [
+        String(p.id),
+        String(p.name),
+        Number(p.price || 0),
+        p.category || 'Women',
+        p.imageUrl || p.image_url || null,
+        typeof p.images === 'object' ? JSON.stringify(p.images) : p.images || null,
+        Number(p.stock || p.stock_count || 1),
+        typeof p.colors === 'object' ? JSON.stringify(p.colors) : p.colors || null,
+        typeof p.sizes === 'object' ? JSON.stringify(p.sizes) : p.sizes || null,
+        p.status || 'published',
+        p.is_deleted ? 1 : 0,
+      ]
+    );
+  }
+}
+
+// ── Unanswered Queries (Active Learning Queue) ─────────────────────────────
+
+export async function saveUnansweredQuery({ senderId, customerMessage }) {
+  await executeQuery(
+    `INSERT INTO unanswered_queries (sender_id, customer_message, status, created_at)
+     VALUES (?, ?, 'pending', datetime('now'))`,
+    [senderId, customerMessage]
+  );
+}
+
+export async function getUnansweredQueries(limit = 50) {
+  const result = await executeQuery(
+    `SELECT * FROM unanswered_queries WHERE status = 'pending' ORDER BY created_at DESC LIMIT ?`,
+    [limit]
+  );
+  return result?.results || [];
+}
+
+export async function resolveUnansweredQuery(id) {
+  await executeQuery(
+    `UPDATE unanswered_queries SET status = 'resolved' WHERE id = ?`,
+    [id]
+  );
+}
+

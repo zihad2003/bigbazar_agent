@@ -14,7 +14,7 @@
  *  - AI reply field changed from .text to .reply (structured JSON output)
  */
 
-import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId, getRelevantTrainingExamples, getActiveKnowledgeBase } from './d1.js';
+import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId, getRelevantTrainingExamples, getActiveKnowledgeBase, saveUnansweredQuery } from './d1.js';
 import { getAIReply } from './ai.js';
 import { searchProducts } from './productSearch.js';
 import { saveOrder } from './orderService.js';
@@ -395,11 +395,23 @@ function stripEmojis(text) {
 }
 
 async function triggerHandoff(senderId, conversation, reason) {
+  const lastMessage = conversation.message_history?.slice(-1)?.[0]?.content ?? '';
+
   await updateConversation(senderId, {
     paused_by_ai: true,
     paused_reason: reason,
     state: 'HANDOFF',
   });
+
+  // Save unanswered query to D1 active learning queue
+  try {
+    await saveUnansweredQuery({
+      senderId,
+      customerMessage: lastMessage || 'Missing product info / handoff requested',
+    });
+  } catch (e) {
+    console.warn('Failed to log unanswered query:', e.message);
+  }
 
   await sendMessage(
     senderId,
@@ -410,6 +422,6 @@ async function triggerHandoff(senderId, conversation, reason) {
     type: 'HANDOFF_NEEDED',
     reason,
     senderId,
-    lastMessage: conversation.message_history?.slice(-1)?.[0]?.content ?? '',
+    lastMessage,
   });
 }

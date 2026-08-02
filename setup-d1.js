@@ -78,6 +78,29 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
 );
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_active ON knowledge_base (is_active);
+
+CREATE TABLE IF NOT EXISTS products_cache (
+  id                TEXT PRIMARY KEY,
+  name              TEXT NOT NULL,
+  price             REAL NOT NULL,
+  category          TEXT,
+  image_url         TEXT,
+  images            TEXT,
+  stock_count       INTEGER DEFAULT 1,
+  colors            TEXT,
+  sizes             TEXT,
+  status            TEXT DEFAULT 'published',
+  is_deleted        INTEGER DEFAULT 0,
+  updated_at        TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS unanswered_queries (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  sender_id         TEXT NOT NULL,
+  customer_message  TEXT NOT NULL,
+  status            TEXT DEFAULT 'pending',
+  created_at        TEXT DEFAULT (datetime('now'))
+);
 `;
 
 async function executeSQL(sql) {
