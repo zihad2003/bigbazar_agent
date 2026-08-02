@@ -136,7 +136,12 @@ export async function handleMessage(event, baseUrl = '') {
     if (needsAI) {
       let products = [];
       if (imageUrl || isProductQuery(messageText)) {
-        products = await searchProducts(messageText, imageUrl, conversation.pending_product_name);
+        try {
+          products = await searchProducts(messageText, imageUrl, conversation.pending_product_name);
+        } catch (dbErr) {
+          console.error('⚠️ [TiDB Error] Failed to search products in database:', dbErr.message);
+          // Continue gracefully with empty products array so AI can still reply
+        }
       }
 
       // Fetch previous orders to customize returning customer vibe

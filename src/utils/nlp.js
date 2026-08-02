@@ -29,17 +29,17 @@ export function detectHandoffIntent(text) {
 
 // Messages that should SKIP the database
 const SKIP_DB_EXACT = [
-  // Greetings
-  'হ্যালো', 'hello', 'hi', 'হাই',
-  'আসসালামু আলাইকুম', 'assalamu alaikum', 'salam', 'সালাম',
-  'ওয়ালাইকুম', 'walaikum', 'walaikum assalam',
+  // Greetings & typos
+  'হ্যালো', 'hello', 'hi', 'হাই', 'hlw', 'helo', 'hlo', 'hllo', 'hey', 'hy', 'hei',
+  'আসসালামু আলাইকুম', 'assalamu alaikum', 'asalamu alaikum', 'asalamualaikum', 'salam', 'সালাম', 'slm',
+  'ওয়ালাইকুম', 'walaikum', 'walaikum assalam', 'wasa',
   // Thanks & acknowledgments
   'ধন্যবাদ', 'thanks', 'thank you', 'shukriya',
   'ঠিক আছে', 'ok', 'okay', 'আচ্ছা', 'জি', 'হ্যাঁ', 'yes', 'না', 'no',
   // Goodbye
   'বিদায়', 'bye', 'goodbye',
-  // Short affirmations
-  'hmm', 'হুম', 'ki', 'কি', 'জ্বি',
+  // Short affirmations / noise
+  'hmm', 'হুম', 'ki', 'কি', 'জ্বি', 'hm', 'humm', 'haa', 'ha',
 ];
 
 // Payment-related keywords — these shouldn't trigger product search
@@ -62,6 +62,11 @@ export function isProductQuery(text) {
   if (!text || text.trim().length === 0) return false;
 
   const lower = text.toLowerCase().trim();
+
+  // If very short (<= 2 chars) and not a recognized 2-char token, skip DB
+  if (lower.length <= 2 && !['3p', '2p'].includes(lower)) {
+    return false;
+  }
 
   // If it's just a short greeting/acknowledgment, skip DB
   if (SKIP_DB_EXACT.some(g => lower === g || lower === g + '!' || lower === g + '?')) {
