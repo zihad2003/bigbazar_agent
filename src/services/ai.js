@@ -25,14 +25,27 @@ if (AI_PROVIDER === 'groq') {
 
 export async function getAIReply(systemPrompt, userText, imageUrl, history = []) {
   if (AI_PROVIDER === 'gemini') {
-    return geminiService.getAIReply(systemPrompt, userText, imageUrl, history);
+    try {
+      return await geminiService.getAIReply(systemPrompt, userText, imageUrl, history);
+    } catch (err) {
+      if (process.env.GROQ_API_KEY) {
+        console.warn(`⚠️ [AI Wrapper] Gemini failed (${err.message}). Falling back to Groq for text reply...`);
+        return groqService.getAIReply(systemPrompt, userText, imageUrl, history);
+      }
+      throw err;
+    }
   }
   return groqService.getAIReply(systemPrompt, userText, imageUrl, history);
 }
 
 export async function describeImage(imageUrl) {
   if (AI_PROVIDER === 'gemini') {
-    return geminiService.describeImage(imageUrl);
+    try {
+      return await geminiService.describeImage(imageUrl);
+    } catch (err) {
+      console.warn(`⚠️ [AI Wrapper] Gemini vision failed (${err.message}). Image search keywords unavailable.`);
+      return '';
+    }
   }
   return groqService.describeImage(imageUrl);
 }

@@ -7,8 +7,26 @@
  */
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const PRIMARY_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-const FALLBACK_MODEL = 'gemini-1.5-flash';
+const PRIMARY_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-flash-lite-latest';
+
+/** Classify Gemini API errors for correct fallback behavior */
+function classifyGeminiError(msg) {
+  const lower = (msg || '').toLowerCase();
+  if (lower.includes('not found') || lower.includes('no longer available') || lower.includes('is not supported')) {
+    return 'model_not_found';
+  }
+  if (lower.includes('quota') || lower.includes('rate limit') || lower.includes('rate-limit') || lower.includes('resource exhausted')) {
+    return 'quota_exceeded';
+  }
+  return 'other';
+}
+
+/** Whether to retry with the configured Gemini fallback model */
+function shouldTryGeminiFallback(errorType, modelName) {
+  if (modelName === FALLBACK_MODEL) return false;
+  return errorType === 'model_not_found' || errorType === 'quota_exceeded';
+}
 
 /**
  * JSON schema for structured AI reply output.
@@ -52,8 +70,10 @@ async function callGemini(payload, modelName = PRIMARY_MODEL) {
     const data = await res.json();
     if (!res.ok) {
       const msg = data.error?.message || res.statusText;
-      if (modelName !== FALLBACK_MODEL && (msg.includes('not found') || msg.includes('no longer available') || msg.includes('model'))) {
-        console.warn(`⚠️ [Gemini API] Primary model "${modelName}" failed (${msg}). Retrying with fallback model "${FALLBACK_MODEL}"...`);
+      const errorType = classifyGeminiError(msg);
+
+      if (shouldTryGeminiFallback(errorType, modelName)) {
+        console.warn(`⚠️ [Gemini API] Model "${modelName}" failed (${errorType}). Retrying with "${FALLBACK_MODEL}"...`);
         return await callGemini(payload, FALLBACK_MODEL);
       }
       throw new Error(`Gemini API Error: ${msg}`);
@@ -61,8 +81,10 @@ async function callGemini(payload, modelName = PRIMARY_MODEL) {
 
     return data;
   } catch (err) {
-    if (modelName !== FALLBACK_MODEL) {
-      console.warn(`⚠️ [Gemini API] Error on model "${modelName}": ${err.message}. Retrying with "${FALLBACK_MODEL}"...`);
+    const errorType = classifyGeminiError(err.message);
+
+    if (shouldTryGeminiFallback(errorType, modelName)) {
+      console.warn(`⚠️ [Gemini API] Model "${modelName}" failed (${errorType}): ${err.message}. Retrying with "${FALLBACK_MODEL}"...`);
       return await callGemini(payload, FALLBACK_MODEL);
     }
     throw err;
