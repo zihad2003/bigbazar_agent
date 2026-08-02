@@ -52,7 +52,7 @@ async function callGemini(payload, modelName = PRIMARY_MODEL) {
     const data = await res.json();
     if (!res.ok) {
       const msg = data.error?.message || res.statusText;
-      if (modelName !== FALLBACK_MODEL && (msg.includes('model') || msg.includes('unexpected model name format'))) {
+      if (modelName !== FALLBACK_MODEL && (msg.includes('not found') || msg.includes('no longer available') || msg.includes('model'))) {
         console.warn(`⚠️ [Gemini API] Primary model "${modelName}" failed (${msg}). Retrying with fallback model "${FALLBACK_MODEL}"...`);
         return await callGemini(payload, FALLBACK_MODEL);
       }
