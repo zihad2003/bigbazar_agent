@@ -11,7 +11,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus, saveTrainingExample, getTrainingExamples, deleteTrainingExample, getKnowledgeEntries, saveKnowledgeEntry, updateKnowledgeEntry, deleteKnowledgeEntry, deleteConversation, deleteOrder, updateTrainingExample, createManualOrder, getUnansweredQueries, resolveUnansweredQuery, upsertD1Products } from '../services/d1.js';
-import { getAllProducts, getProductStats, updateProductImages } from '../db/tidb.js';
+import { getAllProducts, getProductStats, updateProductImages } from '../services/d1.js';
 import { sendMessage } from '../services/messenger.js';
 
 export const adminRouter = Router();

@@ -433,3 +433,69 @@ export async function resolveUnansweredQuery(id) {
   );
 }
 
+// ── Admin Dashboard Product Functions (D1) ─────────────────────────────────
+
+export async function getAllProducts({ limit = 30, offset = 0, search = '' } = {}) {
+  let whereClause = `WHERE status = 'published' AND is_deleted = 0`;
+  const params = [];
+
+  if (search && search.trim()) {
+    const like = `%${search.trim()}%`;
+    whereClause += ` AND (name LIKE ? OR category LIKE ?)`;
+    params.push(like, like);
+  }
+
+  // Count total before pagination
+  const countResult = await executeQuery(
+    `SELECT COUNT(*) AS total FROM products_cache ${whereClause}`,
+    params
+  );
+  const total = countResult?.results?.[0]?.total || 0;
+
+  params.push(Number(limit), Number(offset));
+
+  const result = await executeQuery(
+    `SELECT id, name, price, price AS originalPrice, category,
+            image_url AS imageUrl, images,
+            stock_count AS stock, colors, sizes,
+            updated_at AS createdAt
+     FROM products_cache
+     ${whereClause}
+     ORDER BY updated_at DESC
+     LIMIT ? OFFSET ?`,
+    params
+  );
+
+  return {
+    products: result?.results || [],
+    total,
+    limit,
+    offset,
+  };
+}
+
+export async function getProductStats() {
+  const result = await executeQuery(
+    `SELECT
+       COUNT(*) AS total,
+       SUM(CASE WHEN stock_count > 0 THEN 1 ELSE 0 END) AS inStock,
+       SUM(CASE WHEN stock_count <= 0 THEN 1 ELSE 0 END) AS outOfStock,
+       0 AS onSale
+     FROM products_cache
+     WHERE status = 'published' AND is_deleted = 0`
+  );
+  return result?.results?.[0] || { total: 0, inStock: 0, outOfStock: 0, onSale: 0 };
+}
+
+export async function updateProductImages(productId, imagesArray) {
+  const firstImage = imagesArray.length > 0 ? imagesArray[0] : null;
+  const jsonStr = JSON.stringify(imagesArray);
+
+  await executeQuery(
+    `UPDATE products_cache
+     SET images = ?, image_url = ?
+     WHERE id = ?`,
+    [jsonStr, firstImage, String(productId)]
+  );
+}
+
