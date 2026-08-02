@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   pending_variant         TEXT,
   order_name             TEXT,
   order_address           TEXT,
+  order_phone             TEXT,
 
   last_order_id          TEXT,
   created_at             TEXT DEFAULT (datetime('now')),

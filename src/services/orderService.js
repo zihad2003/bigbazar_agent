@@ -1,5 +1,5 @@
 /**
- * Order Service — persists finalized orders to the agent's Supabase store.
+ * Order Service — persists finalized orders to the agent's Cloudflare D1 store.
  */
 
 import { saveOrder as saveOrderToD1 } from './d1.js';

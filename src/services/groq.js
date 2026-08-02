@@ -1,9 +1,11 @@
 /**
  * Groq API Integration
  *
- * Sends the conversation + product context to Groq (Llama 3/Mixtral), asks for a
- * structured JSON response so the state machine can act on intent
- * (not just display text).
+ * Sends the conversation + product context to Groq (Llama 3/Mixtral), using
+ * JSON mode (response_format: {type: "json_object"}) for reliable structured output.
+ *
+ * ⚠️  Groq has NO vision capability — describeImage() always returns empty.
+ *     Use Gemini (AI_PROVIDER=gemini) for image understanding.
  */
 
 import Groq from 'groq-sdk';
@@ -21,25 +23,28 @@ const FALLBACK_MODEL = process.env.GROQ_FALLBACK_MODEL || 'llama-3.1-8b-instant'
 
 /**
  * Helper to call Groq completions with Llama 3.3 -> 3.1 fallback.
+ * @param {boolean} jsonMode - If true, enables response_format: {type: "json_object"}
  */
-async function callGroqWithFallback(messages, maxTokens = 2048, temperature = 0.5) {
+async function callGroqWithFallback(messages, maxTokens = 2048, temperature = 0.5, jsonMode = false) {
   const groq = getGroq();
+  const options = {
+    model: PRIMARY_MODEL,
+    max_tokens: maxTokens,
+    messages,
+    temperature,
+  };
+
+  if (jsonMode) {
+    options.response_format = { type: 'json_object' };
+  }
+
   try {
-    console.log(`🤖 [Groq API] Calling primary model: ${PRIMARY_MODEL}`);
-    return await groq.chat.completions.create({
-      model: PRIMARY_MODEL,
-      max_tokens: maxTokens,
-      messages,
-      temperature,
-    });
+    console.log(`🤖 [Groq API] Calling primary model: ${PRIMARY_MODEL}${jsonMode ? ' (JSON mode)' : ''}`);
+    return await groq.chat.completions.create(options);
   } catch (err) {
     console.warn(`⚠️ [Groq API] Primary model ${PRIMARY_MODEL} failed, falling back to ${FALLBACK_MODEL}. Error:`, err.message);
-    return await groq.chat.completions.create({
-      model: FALLBACK_MODEL,
-      max_tokens: maxTokens,
-      messages,
-      temperature,
-    });
+    options.model = FALLBACK_MODEL;
+    return await groq.chat.completions.create(options);
   }
 }
 
@@ -61,7 +66,7 @@ export async function describeImage(imageUrl) {
  * @param {string} userText
  * @param {string|undefined} imageUrl - Facebook CDN URL of an attached image, if any
  * @param {Array} history - Array of previous conversation messages
- * @returns {{ text: string, intent: string, productName?: string, productPrice?: number, variant?: string }}
+ * @returns {{ reply: string, intent: string, productName?: string, productPrice?: number, variant?: string }}
  */
 export async function getAIReply(systemPrompt, userText, imageUrl, history = []) {
   const messages = [
@@ -82,7 +87,7 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
   if (imageUrl) {
     content.push({
       type: 'text',
-      text: `[কাস্টমার একটি ছবি পাঠিয়েছেন: ${imageUrl}]`
+      text: `[কাস্টমার একটি ছবি পাঠিয়েছেন: ${imageUrl}]`
     });
   }
 
@@ -93,23 +98,19 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
 
   messages.push({ role: 'user', content });
 
-  const response = await callGroqWithFallback(messages, 600, 0.5);
+  // Enable JSON mode for structured output
+  const response = await callGroqWithFallback(messages, 600, 0.5, true);
   const rawText = response.choices[0]?.message?.content || '';
 
   return parseAIResponse(rawText);
 }
 
 /**
- * The system prompt instructs the AI to end its reply with a hidden
- * JSON control block so we can extract structured intent. See
- * utils/prompts.js for the exact instruction. Format:
- *
- *   <reply text the customer sees>
- *   ---CONTROL---
- *   {"intent": "PRODUCT_FOUND", "productName": "...", "productPrice": 1850, "variant": "Red, M"}
+ * Parses the JSON response from Groq (JSON mode guarantees valid JSON output).
+ * Extracts the `reply` field for customer-facing text and intent fields for state machine.
  */
 function parseAIResponse(rawText) {
-  // Strip <think>...</think> tag blocks to prevent internal reasoning leaking to customers (even if unclosed due to truncation)
+  // Strip <think>...</think> tag blocks to prevent internal reasoning leaking
   let cleanedText = rawText;
   if (cleanedText.includes('<think>')) {
     const parts = cleanedText.split('<think>');
@@ -128,40 +129,41 @@ function parseAIResponse(rawText) {
   // Also clean up any loose </think> tags
   cleanedText = cleanedText.replace(/<\/think>/g, '').trim();
 
-  const splitToken = '---CONTROL---';
-  const idx = cleanedText.indexOf(splitToken);
-
-  if (idx === -1) {
-    // No control block — treat as plain chat, no state transition
-    return { text: cleanedText, intent: 'NONE' };
-  }
-
-  const text = cleanedText.slice(0, idx).trim();
-  const jsonPart = cleanedText.slice(idx + splitToken.length).trim();
+  // Strip markdown code fences if present (```json ... ```)
+  cleanedText = cleanedText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 
   try {
-    const control = JSON.parse(jsonPart);
-    return { text, ...control };
+    const parsed = JSON.parse(cleanedText);
+    return {
+      reply: parsed.reply || '',
+      intent: parsed.intent || 'NONE',
+      productName: parsed.productName || undefined,
+      productPrice: parsed.productPrice || undefined,
+      variant: parsed.variant || undefined,
+      imageUrl: parsed.imageUrl || undefined,
+      customerName: parsed.customerName || undefined,
+      customerAddress: parsed.customerAddress || undefined,
+      customerPhone: parsed.customerPhone || undefined,
+    };
   } catch (err) {
-    const isTruncated = jsonPart.startsWith('{') && !jsonPart.endsWith('}');
-    if (isTruncated) {
-      console.warn('⚠️ [Groq API] Truncated JSON detected! Raw jsonPart:', jsonPart);
-      // Try a simple regex fallback to extract intent from the truncated JSON
-      const intentMatch = jsonPart.match(/"intent"\s*:\s*"([^"]+)"/);
-      const productNameMatch = jsonPart.match(/"productName"\s*:\s*"([^"]+)"/);
-      const productPriceMatch = jsonPart.match(/"productPrice"\s*:\s*(\d+)/);
-      
-      const fallbackControl = { intent: 'NONE' };
-      if (intentMatch) fallbackControl.intent = intentMatch[1];
-      if (productNameMatch) fallbackControl.productName = productNameMatch[1];
-      if (productPriceMatch) fallbackControl.productPrice = Number(productPriceMatch[1]);
-      
-      console.log('🤖 [Groq API] Recovered partial parameters from truncated JSON:', fallbackControl);
-      return { text, ...fallbackControl, _isTruncated: true };
-    } else {
-      console.warn('⚠️ [Groq API] Malformed JSON detected! Raw jsonPart:', jsonPart);
-      return { text, intent: 'NONE' };
-    }
+    console.error(`🚨 [PARSE_FAILURE] [Groq] Failed to parse AI response as JSON. Error: ${err.message}`);
+    console.error(`🚨 [PARSE_FAILURE] [Groq] Raw response (first 500 chars): ${cleanedText.slice(0, 500)}`);
+
+    // Regex fallback for truncated JSON
+    const intentMatch = cleanedText.match(/"intent"\s*:\s*"([^"]+)"/);
+    const replyMatch = cleanedText.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    const productNameMatch = cleanedText.match(/"productName"\s*:\s*"([^"]+)"/);
+    const productPriceMatch = cleanedText.match(/"productPrice"\s*:\s*(\d+)/);
+
+    const fallback = {
+      reply: replyMatch ? replyMatch[1] : 'দুঃখিত, একটু সমস্যা হচ্ছে। আবার চেষ্টা করুন।',
+      intent: intentMatch ? intentMatch[1] : 'NONE',
+    };
+    if (productNameMatch) fallback.productName = productNameMatch[1];
+    if (productPriceMatch) fallback.productPrice = Number(productPriceMatch[1]);
+
+    console.warn('🚨 [PARSE_FAILURE] [Groq] Using regex fallback:', fallback);
+    return fallback;
   }
 }
 

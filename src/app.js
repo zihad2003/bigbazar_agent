@@ -1,6 +1,6 @@
 /**
  * Big Bazar AI Agent — Main Application Entry
- * Stack: Node.js + Express + Supabase + Anthropic API
+ * Stack: Node.js + Express + Cloudflare D1 + Gemini/Groq AI
  */
 import 'dotenv/config';
 import express from 'express';

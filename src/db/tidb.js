@@ -33,6 +33,9 @@ const COLUMNS = {
   isHot:         'is_hot',            // TINYINT — hot/trending badge
   isNew:         'is_new',            // TINYINT — new arrival badge
   isSoldOut:     'is_sold_out',       // TINYINT — sold out flag
+  isDeleted:     'is_deleted',        // TINYINT — soft-delete flag
+  isExclusive:   'is_exclusive',      // TINYINT — exclusive product flag
+  platformId:    'platform_id',       // external platform reference ID
   serialNo:      'serial_no',         // display/sort order
   createdAt:     'created_at',
 };
@@ -78,7 +81,8 @@ export async function searchProductsByText(query, limit = 5) {
             ${COLUMNS.images} AS images,
             ${COLUMNS.stock} AS stock, ${COLUMNS.colors} AS colors, ${COLUMNS.sizes} AS sizes
      FROM ${TABLE}
-     WHERE ${COLUMNS.name} LIKE ? OR ${COLUMNS.category} LIKE ?
+     WHERE ${COLUMNS.isDeleted} = 0
+       AND (${COLUMNS.name} LIKE ? OR ${COLUMNS.category} LIKE ?)
      ORDER BY ${COLUMNS.stock} DESC
      LIMIT ?`,
     [like, like, Number(limit)]
@@ -114,6 +118,7 @@ export async function getCatalogSnapshot(limit = 80) {
     `SELECT ${COLUMNS.name} AS name, ${COLUMNS.price} AS price,
             ${COLUMNS.category} AS category, ${COLUMNS.stock} AS stock
      FROM ${TABLE}
+     WHERE ${COLUMNS.isDeleted} = 0
      ORDER BY ${COLUMNS.createdAt} DESC
      LIMIT ?`,
     [Number(limit)]
@@ -129,7 +134,7 @@ export async function getCatalogSnapshot(limit = 80) {
 export async function getAllProducts({ limit = 30, offset = 0, search = '' } = {}) {
   const db = getTiDBPool();
 
-  let whereClause = `WHERE ${COLUMNS.badge} = 'published'`;
+  let whereClause = `WHERE ${COLUMNS.badge} = 'published' AND ${COLUMNS.isDeleted} = 0`;
   const params = [];
 
   if (search && search.trim()) {
@@ -184,7 +189,7 @@ export async function getProductStats() {
        SUM(CASE WHEN ${COLUMNS.stock} = 0 OR ${COLUMNS.isSoldOut} = 1 THEN 1 ELSE 0 END) AS outOfStock,
        SUM(CASE WHEN ${COLUMNS.isSale} = 1 THEN 1 ELSE 0 END) AS onSale
      FROM ${TABLE}
-     WHERE ${COLUMNS.badge} = 'published'`
+     WHERE ${COLUMNS.badge} = 'published' AND ${COLUMNS.isDeleted} = 0`
   );
   return rows[0] ?? { total: 0, inStock: 0, outOfStock: 0, onSale: 0 };
 }

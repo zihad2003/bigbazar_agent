@@ -1,13 +1,34 @@
 /**
  * Gemini API Integration (Native REST Implementation)
  *
- * Provides a drop-in replacement for Groq using Gemini 1.5/2.0 Flash.
- * Supports native vision search (describeImage) and chat completion with JSON parsing.
+ * Provides a drop-in replacement for Groq using Gemini 2.5 Flash.
+ * Supports native vision search (describeImage) and structured JSON output
+ * via responseSchema/responseMimeType (no more ---CONTROL--- parsing).
  */
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const BASE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent`;
+
+/**
+ * JSON schema for structured AI reply output.
+ * Gemini's responseSchema constrains the model to emit valid JSON matching this shape.
+ */
+const AI_REPLY_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    reply:           { type: 'STRING', description: 'Customer-facing reply text in Bengali' },
+    intent:          { type: 'STRING', description: 'One of: PRODUCT_FOUND, START_ORDER, CONFIRM_ORDER, HANDOFF, NONE', enum: ['PRODUCT_FOUND', 'START_ORDER', 'CONFIRM_ORDER', 'HANDOFF', 'NONE'] },
+    productName:     { type: 'STRING', description: 'Product name if applicable, empty string otherwise' },
+    productPrice:    { type: 'NUMBER', description: 'Product price in BDT if applicable, 0 otherwise' },
+    variant:         { type: 'STRING', description: 'Product variant (color, size) if applicable, empty string otherwise' },
+    imageUrl:        { type: 'STRING', description: 'Product image URL from PRODUCT CONTEXT, empty string otherwise' },
+    customerName:    { type: 'STRING', description: 'Customer name if provided, empty string otherwise' },
+    customerAddress: { type: 'STRING', description: 'Customer address if provided, empty string otherwise' },
+    customerPhone:   { type: 'STRING', description: 'Customer phone if provided, empty string otherwise' },
+  },
+  required: ['reply', 'intent'],
+};
 
 /**
  * Fetch helper for Gemini REST API
@@ -98,7 +119,8 @@ export async function describeImage(imageUrl) {
 }
 
 /**
- * Chat Completion helper
+ * Chat Completion helper — uses Gemini structured output (responseSchema)
+ * to guarantee valid JSON responses instead of the old ---CONTROL--- parsing.
  */
 export async function getAIReply(systemPrompt, userText, imageUrl, history = []) {
   const contents = [];
@@ -118,7 +140,7 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
     const imageData = await fetchImageAsInlineData(imageUrl);
     if (imageData) {
       currentUserParts.push(imageData);
-      currentUserParts.push({ text: `[কাস্টমার একটি ছবি পাঠিয়েছেন: ${imageUrl}]` });
+      currentUserParts.push({ text: `[কাস্টমার একটি ছবি পাঠিয়েছেন: ${imageUrl}]` });
     }
   }
 
@@ -139,6 +161,8 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
     generationConfig: {
       temperature: 0.5,
       maxOutputTokens: 600,
+      responseMimeType: 'application/json',
+      responseSchema: AI_REPLY_SCHEMA,
     },
   };
 
@@ -149,43 +173,34 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
 }
 
 /**
- * Parses structured JSON response from markdown blocks
+ * Parses the structured JSON response from Gemini.
+ * With responseSchema, the output is guaranteed to be valid JSON,
+ * but we still wrap in try/catch for safety.
  */
 function parseAIResponse(rawText) {
-  // Clean think blocks (if any)
-  let cleanedText = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-  cleanedText = cleanedText.replace(/<\/think>/g, '').trim();
-
-  const splitToken = '---CONTROL---';
-  const idx = cleanedText.indexOf(splitToken);
-
-  if (idx === -1) {
-    return { text: cleanedText, intent: 'NONE' };
-  }
-
-  const text = cleanedText.slice(0, idx).trim();
-  const jsonPart = cleanedText.slice(idx + splitToken.length).trim();
-
   try {
-    const control = JSON.parse(jsonPart);
-    return { text, ...control };
+    const parsed = JSON.parse(rawText);
+    return {
+      reply: parsed.reply || '',
+      intent: parsed.intent || 'NONE',
+      productName: parsed.productName || undefined,
+      productPrice: parsed.productPrice || undefined,
+      variant: parsed.variant || undefined,
+      imageUrl: parsed.imageUrl || undefined,
+      customerName: parsed.customerName || undefined,
+      customerAddress: parsed.customerAddress || undefined,
+      customerPhone: parsed.customerPhone || undefined,
+    };
   } catch (err) {
-    const isTruncated = jsonPart.startsWith('{') && !jsonPart.endsWith('}');
-    if (isTruncated) {
-      console.warn('⚠️ [Gemini API] Truncated JSON detected! Raw jsonPart:', jsonPart);
-      const intentMatch = jsonPart.match(/"intent"\s*:\s*"([^"]+)"/);
-      const productNameMatch = jsonPart.match(/"productName"\s*:\s*"([^"]+)"/);
-      const productPriceMatch = jsonPart.match(/"productPrice"\s*:\s*(\d+)/);
-      
-      const fallbackControl = { intent: 'NONE' };
-      if (intentMatch) fallbackControl.intent = intentMatch[1];
-      if (productNameMatch) fallbackControl.productName = productNameMatch[1];
-      if (productPriceMatch) fallbackControl.productPrice = Number(productPriceMatch[1]);
-      
-      return { text, ...fallbackControl, _isTruncated: true };
-    } else {
-      console.warn('⚠️ [Gemini API] Malformed JSON detected! Raw jsonPart:', jsonPart);
-      return { text, intent: 'NONE' };
-    }
+    console.error(`🚨 [PARSE_FAILURE] [Gemini] Failed to parse AI response as JSON. Error: ${err.message}`);
+    console.error(`🚨 [PARSE_FAILURE] [Gemini] Raw response (first 500 chars): ${rawText.slice(0, 500)}`);
+
+    // Last-resort fallback: try to extract reply text from the raw output
+    const cleaned = rawText
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/<\/think>/g, '')
+      .trim();
+
+    return { reply: cleaned || 'দুঃখিত, একটু সমস্যা হচ্ছে। আবার চেষ্টা করুন।', intent: 'NONE' };
   }
 }

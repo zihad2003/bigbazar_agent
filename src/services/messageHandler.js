@@ -7,6 +7,11 @@
  *  - ORDER_CONFIRM / PAID state added
  *  - GREETING state handled without any DB call
  *  - Response length enforced via prompt (see utils/prompts.js)
+ *
+ * v2 changes:
+ *  - AWAITING_ORDER_DETAILS state added for explicit order tracking
+ *  - History window increased from 6→16 messages for better context retention
+ *  - AI reply field changed from .text to .reply (structured JSON output)
  */
 
 import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId, getRelevantTrainingExamples, getActiveKnowledgeBase } from './d1.js';
@@ -93,6 +98,7 @@ export async function handleMessage(event, baseUrl = '') {
             pending_variant: null,
             order_name: null,
             order_address: null,
+            order_phone: null,
           };
           reply = 'ধন্যবাদ! পেমেন্ট কনফার্ম হলেই শিপমেন্ট শুরু হবে। খুব শীঘ্রই আপনার সাথে যোগাযোগ করা হবে। 😊';
           await notifyModerator({
@@ -111,6 +117,12 @@ export async function handleMessage(event, baseUrl = '') {
       case 'HANDOFF': {
         await sendTypingIndicator(senderId, false);
         return;
+      }
+
+      case 'AWAITING_ORDER_DETAILS': {
+        // Customer is mid-order — always run AI to collect name/address/phone
+        needsAI = true;
+        break;
       }
 
       default: {
@@ -162,7 +174,7 @@ export async function handleMessage(event, baseUrl = '') {
         console.warn('Knowledge base fetch failed:', e.message);
       }
 
-      const historySlice = (conversation.message_history ?? []).slice(-6);
+      const historySlice = (conversation.message_history ?? []).slice(-16);
 
       const context = {
         state: conversation.state,
@@ -183,7 +195,7 @@ export async function handleMessage(event, baseUrl = '') {
         historySlice
       );
 
-      reply = aiResult.text;
+      reply = aiResult.reply;
 
       // Act on AI intent flags
       if (aiResult.intent === 'PRODUCT_FOUND' && aiResult.productName) {
@@ -202,13 +214,14 @@ export async function handleMessage(event, baseUrl = '') {
         }
       } else if (aiResult.intent === 'START_ORDER') {
         stateUpdate = {
+          state: 'AWAITING_ORDER_DETAILS',
           pending_product_name: aiResult.productName || conversation.pending_product_name || null,
           pending_product_price: aiResult.productPrice || conversation.pending_product_price || null,
           pending_variant: aiResult.variant || conversation.pending_variant || null,
         };
 
-        if (!aiResult.text.includes('নাম:') && !aiResult.text.includes('ঠিকানা:')) {
-          reply = aiResult.text + '\n\n' +
+        if (!aiResult.reply.includes('নাম:') && !aiResult.reply.includes('ঠিকানা:')) {
+          reply = aiResult.reply + '\n\n' +
             `Thank you for contacting Big Bazar! \n` +
             `✨ Assalamu Alaikum!\n\n` +
             `অর্ডার করতে \n` +
@@ -222,7 +235,7 @@ export async function handleMessage(event, baseUrl = '') {
             `(send money) \n\n` +
             `এবং 01877765535 এই নাম্বারে ডেলিভারি চার্জ এডবান্স করে লাস্ট ডিজিট বলুন সাথে পন্যের স্ক্রিনশট দিন।`;
         } else {
-          reply = aiResult.text;
+          reply = aiResult.reply;
         }
       } else if (aiResult.intent === 'CONFIRM_ORDER') {
         const customerName = (aiResult.customerName || conversation.order_name || '').trim();
@@ -234,9 +247,9 @@ export async function handleMessage(event, baseUrl = '') {
         const finalVariant = conversation.pending_variant || aiResult.variant || null;
 
         if (!finalProductName || isNaN(finalProductPrice)) {
-          reply = `আপনি কোন প্রোডাক্টটি অর্ডার করতে চাচ্ছেন দয়া করে একটু বলবেন? তাহলে আমি সঠিক দামটি মিলিয়ে অর্ডারটি কনফার্ম করতে পারব।`;
+          reply = `আপনি কোন প্রোডাক্টটি অর্ডার করতে চাচ্ছেন দয়া করে একটু বলবেন? তাহলে আমি সঠিক দামটি মিলিয়ে অর্ডারটি কনফার্ম করতে পারব।`;
           stateUpdate = {
-            state: 'START_ORDER',
+            state: 'AWAITING_ORDER_DETAILS',
             order_name: customerName || null,
             order_address: customerAddress || null,
             order_phone: customerPhone || null
@@ -250,6 +263,14 @@ export async function handleMessage(event, baseUrl = '') {
             `• নাম্বার: [আপনার মোবাইল নম্বর]\n` +
             `• ঠিকানা: [আপনার সম্পূর্ণ ঠিকানা]\n\n` +
             `ধন্যবাদ!`;
+
+          // Persist any partial fields we did get
+          stateUpdate = {
+            state: 'AWAITING_ORDER_DETAILS',
+            order_name: customerName || conversation.order_name || null,
+            order_address: customerAddress || conversation.order_address || null,
+            order_phone: customerPhone || conversation.order_phone || null,
+          };
         } else {
           // Calculate delivery charge based on address
           const addr = customerAddress.toLowerCase();
@@ -277,9 +298,9 @@ export async function handleMessage(event, baseUrl = '') {
             advanceNote = '৩ হাজার টাকার বেশি অর্ডারে ৫০০ টাকা অগ্রিম পরিশোধ করতে হবে।';
           } else {
             if (deliveryCharge > 0) {
-              advanceNote = `ডেলিভারি চার্জ (${deliveryCharge} টাকা) অর্ডার কনফার্ম করার সময় অগ্রিম পরিশোধ করতে হবে।`;
+              advanceNote = `ডেলিভারি চার্জ (${deliveryCharge} টাকা) অর্ডার কনফার্ম করার সময় অগ্রিম পরিশোধ করতে হবে।`;
             } else {
-              advanceNote = 'মীরসরাইয়ের মধ্যে ডেলিভারি চার্জ ফ্রি, তাই কোনো অগ্রিম পেমেন্ট লাগবে না।';
+              advanceNote = 'মীরসরাইয়ের মধ্যে ডেলিভারি চার্জ ফ্রি, তাই কোনো অগ্রিম পেমেন্ট লাগবে না।';
             }
           }
 
@@ -317,7 +338,7 @@ export async function handleMessage(event, baseUrl = '') {
             `• বিকাশ (পার্সোনাল) নাম্বারে: 01877765535 (Send Money)\n` +
             `• অগ্রিম পরিশোধের পরিমাণ: *${advanceAmount}* টাকা।\n` +
             `• (${advanceNote})\n\n` +
-            `টাকা পাঠিয়ে অনুগ্রহ করে লাস্ট ৪ ডিজিট বলুন সাথে পন্যের স্ক্রিনশট দিন। প্রডাক্ট হাতে পেয়ে আমাদের কোয়ালিটি রিভিউ বা ছবি দিতে ভুলবেন না 😊\n` +
+            `টাকা পাঠিয়ে অনুগ্রহ করে লাস্ট ৪ ডিজিট বলুন সাথে পন্যের স্ক্রিনশট দিন। প্রডাক্ট হাতে পেয়ে আমাদের কোয়ালিটি রিভিউ বা ছবি দিতে ভুলবেন না 😊\n` +
             `ধন্যবাদ, Big Bazar 🌸`;
 
           await notifyModerator({
@@ -341,7 +362,7 @@ export async function handleMessage(event, baseUrl = '') {
     const userEntry = messageText || (imageUrl ? '[ছবি পাঠিয়েছে]' : null);
 
     const newHistory = [
-      ...(conversation.message_history ?? []).slice(-8), // keep last 8 turns
+      ...(conversation.message_history ?? []).slice(-18), // keep last 18 turns
       ...(userEntry ? [{ role: 'user', content: userEntry, ts: Date.now() }] : []),
       { role: 'assistant', content: reply, ts: Date.now() },
     ];
