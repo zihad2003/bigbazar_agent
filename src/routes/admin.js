@@ -10,8 +10,9 @@
 
 import { Router } from 'express';
 import crypto from 'crypto';
-import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus, saveTrainingExample, getTrainingExamples, deleteTrainingExample, getKnowledgeEntries, saveKnowledgeEntry, updateKnowledgeEntry, deleteKnowledgeEntry, deleteConversation, deleteOrder, updateTrainingExample, createManualOrder, getUnansweredQueries, resolveUnansweredQuery, upsertD1Products } from '../services/d1.js';
-import { getAllProducts, getProductStats, updateProductImages } from '../services/d1.js';
+import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus, saveTrainingExample, getTrainingExamples, deleteTrainingExample, getKnowledgeEntries, saveKnowledgeEntry, updateKnowledgeEntry, deleteKnowledgeEntry, deleteConversation, deleteOrder, updateTrainingExample, createManualOrder, getUnansweredQueries, resolveUnansweredQuery, upsertD1Products, updatePaymentVerification } from '../services/d1.js';
+import { updateProductImages } from '../db/tidb.js';
+import { getCachedCatalog, getCachedProductStats, getCacheStatus } from '../services/catalogCache.js';
 import { sendMessage } from '../services/messenger.js';
 
 export const adminRouter = Router();
@@ -115,6 +116,18 @@ adminRouter.post('/orders/:id/status', async (req, res) => {
     await updateOrderStatus(req.params.id, status);
     res.json({ ok: true });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.post('/orders/:id/verify-payment', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const verifiedBy = req.body.verifiedBy || 'admin';
+    await updatePaymentVerification(id, { verifiedBy });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Verify payment error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -237,21 +250,30 @@ adminRouter.put('/training/:id', async (req, res) => {
   }
 });
 
-// ── Products (TiDB — read-only catalog) ───────────────────────────────────────
+// ── Products (In-Memory Catalog Cache) ───────────────────────────────────────
 adminRouter.get('/products', async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 24));
-    const search = req.query.search || '';
+    const search = (req.query.search || '').trim().toLowerCase();
     const offset = (page - 1) * limit;
 
-    const data = await getAllProducts({ limit, offset, search });
+    let products = getCachedCatalog();
+    if (search) {
+      products = products.filter(p => 
+        (p.name || '').toLowerCase().includes(search) || 
+        (p.category || '').toLowerCase().includes(search)
+      );
+    }
+
+    const paginatedProducts = products.slice(offset, offset + limit);
+
     res.json({
-      products: data.products,
-      total: data.total,
+      products: paginatedProducts,
+      total: products.length,
       page,
       limit,
-      totalPages: Math.ceil(data.total / limit),
+      totalPages: Math.ceil(products.length / limit),
     });
   } catch (error) {
     console.error('Products fetch error:', error.message);
@@ -261,10 +283,19 @@ adminRouter.get('/products', async (req, res) => {
 
 adminRouter.get('/products/stats', async (_req, res) => {
   try {
-    const stats = await getProductStats();
+    const stats = await getCachedProductStats();
     res.json(stats);
   } catch (error) {
     console.error('Product stats error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.get('/cache-status', async (_req, res) => {
+  try {
+    const status = getCacheStatus();
+    res.json(status);
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });

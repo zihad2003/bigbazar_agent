@@ -4,6 +4,6 @@
 
 import { saveOrder as saveOrderToD1 } from './d1.js';
 
-export async function saveOrder({ sender_id, name, address, phone, product_name, product_price, variant }) {
-  return await saveOrderToD1({ sender_id, name, address, phone, product_name, product_price, variant });
+export async function saveOrder({ sender_id, name, address, phone, product_name, product_price, variant, payment_method, sender_number, transaction_id, claimed_amount, screenshot_url }) {
+  return await saveOrderToD1({ sender_id, name, address, phone, product_name, product_price, variant, payment_method, sender_number, transaction_id, claimed_amount, screenshot_url });
 }

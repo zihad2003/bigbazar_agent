@@ -172,12 +172,14 @@ export async function updateConversation(senderId, patch) {
   );
 }
 
-export async function saveOrder({ sender_id, name, address, phone, product_name, product_price, variant }) {
+export async function saveOrder({ sender_id, name, address, phone, product_name, product_price, variant, payment_method, sender_number, transaction_id, claimed_amount, screenshot_url }) {
+  const status = (payment_method || sender_number || transaction_id || screenshot_url) ? 'pending_verification' : 'pending_payment';
   const result = await executeQuery(
     `INSERT INTO orders (sender_id, customer_name, customer_address, customer_phone, 
-     product_name, product_price, variant, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [sender_id, name, address, phone, product_name, product_price, variant, 'pending_payment']
+     product_name, product_price, variant, status, payment_method, sender_number, transaction_id, claimed_amount, screenshot_url)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [sender_id, name, address, phone, product_name, product_price, variant, status,
+     payment_method || null, sender_number || null, transaction_id || null, claimed_amount || null, screenshot_url || null]
   );
 
   return { id: result.meta.last_row_id };
@@ -336,14 +338,37 @@ export async function updateTrainingExample(id, { customerMessage, wrongBotReply
   );
 }
 
-export async function createManualOrder({ sender_id, customer_name, customer_address, customer_phone, product_name, product_price, variant, status }) {
+export async function createManualOrder({ sender_id, customer_name, customer_address, customer_phone, product_name, product_price, variant, status, payment_method, sender_number, transaction_id, claimed_amount, screenshot_url }) {
   const result = await executeQuery(
     `INSERT INTO orders (sender_id, customer_name, customer_address, customer_phone, 
-     product_name, product_price, variant, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-    [sender_id, customer_name, customer_address, customer_phone, product_name, product_price, variant, status || 'pending_payment']
+     product_name, product_price, variant, status, payment_method, sender_number, transaction_id, claimed_amount, screenshot_url, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    [sender_id, customer_name, customer_address, customer_phone, product_name, product_price, variant, status || 'pending_payment',
+     payment_method || null, sender_number || null, transaction_id || null, claimed_amount || null, screenshot_url || null]
   );
   return { id: result.meta.last_row_id };
+}
+
+// ── Payment Verification ─────────────────────────────────────────────────────
+
+export async function updatePaymentVerification(orderId, { verifiedBy } = {}) {
+  await executeQuery(
+    `UPDATE orders SET status = 'paid', payment_verified_at = datetime('now'), payment_verified_by = ? WHERE id = ?`,
+    [verifiedBy || 'admin', orderId]
+  );
+}
+
+export async function updateOrderPaymentClaim(orderId, { payment_method, sender_number, transaction_id, claimed_amount, screenshot_url }) {
+  await executeQuery(
+    `UPDATE orders SET status = 'pending_verification',
+     payment_method = COALESCE(?, payment_method),
+     sender_number = COALESCE(?, sender_number),
+     transaction_id = COALESCE(?, transaction_id),
+     claimed_amount = COALESCE(?, claimed_amount),
+     screenshot_url = COALESCE(?, screenshot_url)
+     WHERE id = ?`,
+    [payment_method || null, sender_number || null, transaction_id || null, claimed_amount || null, screenshot_url || null, orderId]
+  );
 }
 
 // ── Products Cache (D1 Information Desk) ────────────────────────────────────

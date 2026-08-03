@@ -1,13 +1,13 @@
 /**
  * Product Search Service
  *
- * Handles querying the TiDB database based on:
+ * Handles querying the in-memory catalog cache based on:
  *   - message text (with query expansion for popular categories)
  *   - image description (vision keywords)
  *   - fallback to pending product name when the query is generic or yields no results.
  */
 
-import { searchD1Products } from './d1.js';
+import { searchCachedCatalog } from './catalogCache.js';
 import { describeImage } from './ai.js';
 
 /**
@@ -97,12 +97,12 @@ export async function searchProducts(messageText, imageUrl, pendingProductName =
     const query = cleaned.length >= 2 ? cleaned : q;
     
     console.log(`🔍 [Product Search] Searching D1 cache for query: "${query}"`);
-    const results = await searchD1Products(query, 5);
+    const results = await searchCachedCatalog(query, 5);
     allResults = [...allResults, ...results];
 
     // If cleaned query returned nothing, try full original text
     if (results.length === 0 && cleaned !== q) {
-      const fallbackResults = await searchD1Products(q, 5);
+      const fallbackResults = await searchCachedCatalog(q, 5);
       allResults = [...allResults, ...fallbackResults];
     }
   }
@@ -125,7 +125,7 @@ export async function searchProducts(messageText, imageUrl, pendingProductName =
   
   if ((uniqueProducts.length === 0 || isGeneric) && pendingProductName) {
     console.log(`🔄 [Product Search] No match or generic query for "${messageText}". Falling back to pending product: "${pendingProductName}"`);
-    const fallbackResults = await searchD1Products(pendingProductName, 5);
+    const fallbackResults = await searchCachedCatalog(pendingProductName, 5);
     for (const product of fallbackResults) {
       if (!seenIds.has(product.id)) {
         seenIds.add(product.id);

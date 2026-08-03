@@ -1442,7 +1442,7 @@
     orders = await api('/admin/orders');
 
     document.getElementById('statOrders').textContent  = orders.length;
-    document.getElementById('statPending').textContent = orders.filter(o => o.status === 'pending_payment').length;
+    document.getElementById('statPending').textContent = orders.filter(o => ['pending_payment', 'pending_verification'].includes(o.status)).length;
 
     if (!orders.length) {
       tbody.innerHTML = `<tr><td colspan="6" class="empty">No orders yet.</td></tr>`;
@@ -1457,14 +1457,19 @@
 
       const statusBadge = {
         'pending_payment': `<span class="badge badge-amber">⏳ Pending</span>`,
+        'pending_verification': `<span class="badge badge-purple">💸 Claimed</span>`,
         'paid':            `<span class="badge badge-cyan">💳 Paid</span>`,
         'shipped':         `<span class="badge badge-green">🚚 Shipped</span>`,
         'cancelled':       `<span class="badge badge-red">✕ Cancelled</span>`,
       }[o.status] || `<span class="badge badge-purple">${e(o.status)}</span>`;
 
-      const updateBtns = o.status === 'pending_payment'
-        ? `<button class="btn btn-sm btn-cyan" onclick="updateOrder(${o.id},'paid')">Mark Paid</button>`
-        : '';
+      let updateBtns = '';
+      if (o.status === 'pending_payment') {
+        updateBtns = `<button class="btn btn-sm btn-cyan" onclick="updateOrder(${o.id},'paid')">Mark Paid</button>`;
+      } else if (o.status === 'pending_verification') {
+        updateBtns = `<button class="btn btn-sm btn-primary" style="background:var(--accent); border-color:var(--accent);" onclick="verifyPayment(${o.id})">Verify & Mark Paid</button>`;
+      }
+
       const shipBtn = o.status === 'paid'
         ? `<button class="btn btn-sm btn-green" onclick="updateOrder(${o.id},'shipped')">Mark Shipped</button>`
         : '';
@@ -1477,6 +1482,16 @@
           <div style="font-weight:600;">${e(o.customer_name)}</div>
           <div class="mono" style="color:var(--muted);margin-top:2px;">${e(o.customer_phone)}</div>
           <div style="font-size:11px;color:var(--muted);margin-top:2px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e(o.customer_address)}">${e(o.customer_address)}</div>
+          ${(o.payment_method || o.sender_number || o.transaction_id || o.claimed_amount || o.screenshot_url) ? `
+            <div style="margin-top: 8px; padding: 8px; background: rgba(139, 92, 246, 0.08); border: 1px dashed rgba(139, 92, 246, 0.3); border-radius: 8px; font-size: 11px; max-width: 250px;">
+              <div style="font-weight: 600; color: var(--accent); margin-bottom: 4px;">💳 Payment Proof Claimed</div>
+              ${o.payment_method ? `<div>Method: <span style="text-transform: uppercase; font-weight: 500;">${e(o.payment_method)}</span></div>` : ''}
+              ${o.sender_number ? `<div>Sender Number: <span class="mono">${e(o.sender_number)}</span></div>` : ''}
+              ${o.transaction_id ? `<div>Txn ID: <span class="mono">${e(o.transaction_id)}</span></div>` : ''}
+              ${o.claimed_amount ? `<div>Amount: ৳${e(o.claimed_amount)}</div>` : ''}
+              ${o.screenshot_url ? `<div style="margin-top: 4px;"><a href="/proxy-image?url=${encodeURIComponent(o.screenshot_url)}" target="_blank" style="color: var(--accent); text-decoration: underline; font-weight: 500;">Open Screenshot 🔗</a></div>` : ''}
+            </div>
+          ` : ''}
         </td>
         <td>
           <div style="font-weight:500;">${e(o.product_name)}</div>
@@ -1501,6 +1516,17 @@
     await api(`/admin/orders/${id}/status`, 'POST', { status });
     toast(`Order marked as ${status}`, 'success');
     loadOrders();
+  }
+
+  async function verifyPayment(id) {
+    if (!confirm(`Verify payment for order #${id} and mark as Paid?`)) return;
+    try {
+      await api(`/admin/orders/${id}/verify-payment`, 'POST', { verifiedBy: 'admin' });
+      toast(`Order #${id} payment verified successfully`, 'success');
+      loadOrders();
+    } catch (err) {
+      toast(`Failed to verify payment: ${err.message}`, 'error');
+    }
   }
 
   // ── Training (Human-in-the-Loop) ──────────────────────────────────────────

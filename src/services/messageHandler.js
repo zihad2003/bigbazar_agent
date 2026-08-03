@@ -14,7 +14,7 @@
  *  - AI reply field changed from .text to .reply (structured JSON output)
  */
 
-import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId, getRelevantTrainingExamples, getActiveKnowledgeBase, saveUnansweredQuery } from './d1.js';
+import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId, getRelevantTrainingExamples, getActiveKnowledgeBase, saveUnansweredQuery, updateOrderPaymentClaim } from './d1.js';
 import { getAIReply } from './ai.js';
 import { searchProducts } from './productSearch.js';
 import { saveOrder } from './orderService.js';
@@ -85,31 +85,7 @@ export async function handleMessage(event, baseUrl = '') {
 
     switch (conversation.state) {
       case 'ORDER_CONFIRM': {
-        // Customer said "paid" / "পেইড" / last digits / transaction ID
-        const lowerText = messageText.toLowerCase();
-        const paidKeywords = ['paid', 'পেইড', 'pay', 'পেমেন্ট', 'bkash', 'বিকাশ', 'send', 'পাঠিয়েছি'];
-        const isPaid = paidKeywords.some(kw => lowerText.includes(kw)) || /[\d০-৯]{4}/.test(messageText);
-
-        if (isPaid) {
-          stateUpdate = {
-            state: 'GREETING',
-            pending_product_name: null,
-            pending_product_price: null,
-            pending_variant: null,
-            order_name: null,
-            order_address: null,
-            order_phone: null,
-          };
-          reply = 'ধন্যবাদ! পেমেন্ট কনফার্ম হলেই শিপমেন্ট শুরু হবে। খুব শীঘ্রই আপনার সাথে যোগাযোগ করা হবে। 😊';
-          await notifyModerator({
-            type: 'PAYMENT_CLAIMED',
-            senderId,
-            lastMessage: messageText,
-          });
-          break;
-        }
-
-        // Not payment-related — let AI handle (e.g. asking about another product)
+        // Customer is in payment stage — always run AI to extract payment proof
         needsAI = true;
         break;
       }
@@ -360,6 +336,44 @@ export async function handleMessage(event, baseUrl = '') {
       } else if (aiResult.intent === 'HANDOFF') {
         await triggerHandoff(senderId, conversation, 'AI could not resolve query');
         return;
+      }
+
+      // ── Payment Claim Extraction ─────────────────────────────────────────
+      // If AI extracted paymentInfo and there's an existing order, update it
+      if (aiResult.paymentInfo && conversation.last_order_id) {
+        try {
+          await updateOrderPaymentClaim(conversation.last_order_id, {
+            payment_method: aiResult.paymentInfo.paymentMethod,
+            sender_number: aiResult.paymentInfo.senderNumber,
+            transaction_id: aiResult.paymentInfo.transactionId,
+            claimed_amount: aiResult.paymentInfo.claimedAmount,
+            screenshot_url: imageUrl || null,
+          });
+          console.log(`💳 [Payment Claim] Order #${conversation.last_order_id} updated with payment claim. Status → pending_verification`);
+
+          // Notify moderator about the payment claim
+          await notifyModerator({
+            type: 'PAYMENT_CLAIMED',
+            senderId,
+            orderId: conversation.last_order_id,
+            paymentInfo: aiResult.paymentInfo,
+            screenshotUrl: imageUrl || null,
+            lastMessage: messageText,
+          });
+
+          // Reset conversation state after payment claim is captured
+          stateUpdate = {
+            state: 'GREETING',
+            pending_product_name: null,
+            pending_product_price: null,
+            pending_variant: null,
+            order_name: null,
+            order_address: null,
+            order_phone: null,
+          };
+        } catch (err) {
+          console.error('Failed to update payment claim:', err.message);
+        }
       }
     }
 

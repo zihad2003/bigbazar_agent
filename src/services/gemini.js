@@ -64,6 +64,17 @@ const AI_REPLY_SCHEMA = {
     customerName:    { type: 'STRING', description: 'Customer name if provided, else empty string ""' },
     customerAddress: { type: 'STRING', description: 'Customer address if provided, else empty string ""' },
     customerPhone:   { type: 'STRING', description: 'Customer phone if provided, else empty string ""' },
+    paymentInfo:     {
+      type: 'OBJECT',
+      description: 'Payment proof details extracted from customer message/screenshot. Only populate when customer is clearly providing payment proof.',
+      nullable: true,
+      properties: {
+        paymentMethod:  { type: 'STRING', description: 'bkash, nagad, or cod' },
+        senderNumber:   { type: 'STRING', description: 'Phone number customer paid from' },
+        transactionId:  { type: 'STRING', description: 'Transaction ID from payment' },
+        claimedAmount:  { type: 'NUMBER', description: 'Amount claimed to have been paid' },
+      },
+    },
   },
   required: ['reply', 'intent'],
 };
@@ -280,7 +291,7 @@ function parseAIResponse(rawText) {
 /** Strip overly long values the model sometimes puts in optional fields */
 function sanitizeParsedReply(parsed) {
   const trim = (v, max = 120) => (typeof v === 'string' && v.length > max ? v.slice(0, max) : v);
-  return {
+  const result = {
     reply: parsed.reply || '',
     intent: parsed.intent || 'NONE',
     productName: trim(parsed.productName) || undefined,
@@ -291,4 +302,19 @@ function sanitizeParsedReply(parsed) {
     customerAddress: trim(parsed.customerAddress) || undefined,
     customerPhone: trim(parsed.customerPhone) || undefined,
   };
+
+  // Pass through paymentInfo if present and has at least one populated field
+  if (parsed.paymentInfo && typeof parsed.paymentInfo === 'object') {
+    const pi = parsed.paymentInfo;
+    if (pi.paymentMethod || pi.senderNumber || pi.transactionId || pi.claimedAmount) {
+      result.paymentInfo = {
+        paymentMethod: trim(pi.paymentMethod, 20) || undefined,
+        senderNumber: trim(pi.senderNumber, 20) || undefined,
+        transactionId: trim(pi.transactionId, 30) || undefined,
+        claimedAmount: pi.claimedAmount || undefined,
+      };
+    }
+  }
+
+  return result;
 }
