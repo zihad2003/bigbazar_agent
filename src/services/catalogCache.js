@@ -9,7 +9,7 @@
  * a read-through cache that resets on every server restart.
  */
 
-import { getAllProducts, getProductStats, searchProductsByText } from '../db/tidb.js';
+import { getAllProducts, getProductStats, searchD1Products } from './d1.js';
 
 // ── State ────────────────────────────────────────────────────────────────────
 let catalog = [];            // Array of product objects
@@ -68,16 +68,16 @@ export function getCacheStatus() {
 }
 
 /**
- * Substring search against the in-memory catalog, mirroring TiDB's
+ * Substring search against the in-memory catalog, mirroring D1's
  * `WHERE name LIKE ? OR category LIKE ?` behavior.
  *
- * Falls back to live TiDB if the cache hasn't completed its first load yet.
+ * Falls back to live D1 if the cache hasn't completed its first load yet.
  */
 export async function searchCachedCatalog(query, limit = 5) {
-  // Cold-start fallback: if initial load hasn't finished, hit TiDB directly
+  // Cold-start fallback: if initial load hasn't finished, hit D1 directly
   if (!initialLoadDone) {
-    console.log('[CatalogCache] Initial load pending — falling back to live TiDB search');
-    return searchProductsByText(query, limit);
+    console.log('[CatalogCache] Initial load pending — falling back to live D1 search');
+    return searchD1Products(query, limit);
   }
 
   if (!query || !query.trim()) return [];
@@ -116,6 +116,10 @@ export async function getCachedProductStats() {
   }
 
   return { total, inStock, outOfStock, onSale };
+}
+
+export async function triggerRefresh() {
+  await refreshCatalog();
 }
 
 // ── Bootstrap ────────────────────────────────────────────────────────────────

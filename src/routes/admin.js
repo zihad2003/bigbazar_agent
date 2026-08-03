@@ -10,9 +10,8 @@
 
 import { Router } from 'express';
 import crypto from 'crypto';
-import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus, saveTrainingExample, getTrainingExamples, deleteTrainingExample, getKnowledgeEntries, saveKnowledgeEntry, updateKnowledgeEntry, deleteKnowledgeEntry, deleteConversation, deleteOrder, updateTrainingExample, createManualOrder, getUnansweredQueries, resolveUnansweredQuery, upsertD1Products, updatePaymentVerification } from '../services/d1.js';
-import { updateProductImages } from '../db/tidb.js';
-import { getCachedCatalog, getCachedProductStats, getCacheStatus } from '../services/catalogCache.js';
+import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus, saveTrainingExample, getTrainingExamples, deleteTrainingExample, getKnowledgeEntries, saveKnowledgeEntry, updateKnowledgeEntry, deleteKnowledgeEntry, deleteConversation, deleteOrder, updateTrainingExample, createManualOrder, getUnansweredQueries, resolveUnansweredQuery, upsertD1Products, updatePaymentVerification, updateProductImages } from '../services/d1.js';
+import { getCachedCatalog, getCachedProductStats, getCacheStatus, triggerRefresh } from '../services/catalogCache.js';
 import { sendMessage } from '../services/messenger.js';
 
 export const adminRouter = Router();
@@ -317,6 +316,7 @@ adminRouter.post('/products', async (req, res) => {
       status: 'published'
     };
     await upsertD1Products([product]);
+    await triggerRefresh();
     res.json({ success: true, product });
   } catch (error) {
     console.error('Add product error:', error.message);
@@ -341,6 +341,7 @@ adminRouter.put('/products/:id/images', async (req, res) => {
     }
 
     await updateProductImages(id, images);
+    await triggerRefresh();
     res.json({ ok: true, images });
   } catch (error) {
     console.error('Product images update error:', error.message);
