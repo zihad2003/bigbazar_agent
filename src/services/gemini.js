@@ -8,13 +8,11 @@
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-const DEFAULT_PRIMARY = 'gemini-flash-lite-latest';
-const DEFAULT_FALLBACK = 'gemini-flash-lite-latest';
+const DEFAULT_PRIMARY = 'gemini-2.0-flash';
+const DEFAULT_FALLBACK = 'gemini-1.5-flash';
 
 /** Models that are deprecated, quota-blocked, or unavailable — auto-upgrade at startup */
 const BLOCKED_MODELS = new Set([
-  'gemini-1.5-flash', 'gemini-1.5-pro',
-  'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite', 'gemini-2.0-flash-lite-001',
   'gemini-3.5-flash-lite',
 ]);
 
