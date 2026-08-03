@@ -60,6 +60,7 @@ export function getTiDBPool() {
     waitForConnections: true,
     connectionLimit: 5,       // keep low — serverless tiers throttle connections
     queueLimit: 0,
+    connectTimeout: 8000,
   });
 
   return pool;
