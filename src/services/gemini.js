@@ -9,7 +9,7 @@
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 const DEFAULT_PRIMARY = 'gemini-2.0-flash';
-const DEFAULT_FALLBACK = 'gemini-1.5-flash';
+const DEFAULT_FALLBACK = 'gemini-flash-lite-latest';
 
 /** Models that are deprecated, quota-blocked, or unavailable — auto-upgrade at startup */
 const BLOCKED_MODELS = new Set([
@@ -103,18 +103,29 @@ async function callGemini(payload, modelName = PRIMARY_MODEL) {
 
       if (shouldTryGeminiFallback(errorType, modelName)) {
         console.warn(`⚠️ [Gemini API] Model "${modelName}" failed (${errorType}). Retrying with "${FALLBACK_MODEL}"...`);
-        return await callGemini(payload, FALLBACK_MODEL);
+        try {
+          return await callGemini(payload, FALLBACK_MODEL);
+        } catch (nestedErr) {
+          nestedErr.alreadyRetried = true;
+          throw nestedErr;
+        }
       }
       throw new Error(`Gemini API Error: ${msg}`);
     }
 
     return data;
   } catch (err) {
-    const errorType = classifyGeminiError(err.message);
+    if (err.alreadyRetried) throw err;
 
+    const errorType = classifyGeminiError(err.message);
     if (shouldTryGeminiFallback(errorType, modelName)) {
       console.warn(`⚠️ [Gemini API] Model "${modelName}" failed (${errorType}): ${err.message}. Retrying with "${FALLBACK_MODEL}"...`);
-      return await callGemini(payload, FALLBACK_MODEL);
+      try {
+        return await callGemini(payload, FALLBACK_MODEL);
+      } catch (nestedErr) {
+        nestedErr.alreadyRetried = true;
+        throw nestedErr;
+      }
     }
     throw err;
   }
