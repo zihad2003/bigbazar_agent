@@ -63,6 +63,11 @@ export async function handleMessage(event, baseUrl = '') {
     const messageText = (event.message.text ?? '').trim();
     const attachments = event.message.attachments ?? [];
     const imageUrl = attachments.find(a => a.type === 'image')?.payload?.url;
+    const audioUrl = attachments.find(a => a.type === 'audio')?.payload?.url;
+
+    if (audioUrl) {
+      console.log(`🎤 [Gemini Audio] Analyzing voice message: ${audioUrl}`);
+    }
 
     // ── 3. Load conversation state ───────────────────────────────────────────────
     const conversation = await getOrCreateConversation(senderId);
@@ -111,9 +116,9 @@ export async function handleMessage(event, baseUrl = '') {
     // ── 7. AI path — only runs when needsAI = true ───────────────────────────────
     if (needsAI) {
       let products = [];
-      if (imageUrl || isProductQuery(messageText)) {
+      if (imageUrl || audioUrl || isProductQuery(messageText)) {
         try {
-          products = await searchProducts(messageText, imageUrl, conversation.pending_product_name);
+          products = await searchProducts(messageText, imageUrl, audioUrl, conversation.pending_product_name);
         } catch (dbErr) {
           console.error('⚠️ [TiDB Error] Failed to search products in database:', dbErr.message);
           // Continue gracefully with empty products array so AI can still reply
@@ -162,6 +167,7 @@ export async function handleMessage(event, baseUrl = '') {
         history: historySlice,
         products,
         imageUrl,
+        audioUrl,
         pendingProduct: conversation.pending_product_name,
         customerProfile,
         trainingExamples,
@@ -173,7 +179,8 @@ export async function handleMessage(event, baseUrl = '') {
         systemPrompt,
         messageText,
         imageUrl,
-        historySlice
+        historySlice,
+        audioUrl
       );
 
       reply = aiResult.reply;
@@ -378,7 +385,7 @@ export async function handleMessage(event, baseUrl = '') {
     }
 
     // ── 8. Persist state + history ───────────────────────────────────────────────
-    const userEntry = messageText || (imageUrl ? '[ছবি পাঠিয়েছে]' : null);
+    const userEntry = messageText || (imageUrl ? '[ছবি পাঠিয়েছে]' : audioUrl ? '[ভয়েস মেসেজ পাঠিয়েছে]' : null);
 
     const newHistory = [
       ...(conversation.message_history ?? []).slice(-18), // keep last 18 turns

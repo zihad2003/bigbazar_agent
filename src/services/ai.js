@@ -23,10 +23,10 @@ if (AI_PROVIDER === 'groq') {
   console.error('');
 }
 
-export async function getAIReply(systemPrompt, userText, imageUrl, history = []) {
+export async function getAIReply(systemPrompt, userText, imageUrl, history = [], audioUrl) {
   if (AI_PROVIDER === 'gemini') {
     try {
-      return await geminiService.getAIReply(systemPrompt, userText, imageUrl, history);
+      return await geminiService.getAIReply(systemPrompt, userText, imageUrl, history, audioUrl);
     } catch (err) {
       if (process.env.GROQ_API_KEY) {
         console.warn(`⚠️ [AI Wrapper] Gemini failed (${err.message}). Falling back to Groq for text reply...`);
@@ -48,4 +48,16 @@ export async function describeImage(imageUrl) {
     }
   }
   return groqService.describeImage(imageUrl);
+}
+
+export async function describeAudio(audioUrl) {
+  if (AI_PROVIDER === 'gemini') {
+    try {
+      return await geminiService.describeAudio(audioUrl);
+    } catch (err) {
+      console.warn(`⚠️ [AI Wrapper] Gemini audio failed (${err.message}). Audio search keywords unavailable.`);
+      return '';
+    }
+  }
+  return '';
 }

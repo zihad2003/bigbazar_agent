@@ -132,15 +132,15 @@ async function callGemini(payload, modelName = PRIMARY_MODEL) {
 }
 
 /**
- * Fetch image and return as inline base64 object for Gemini vision
+ * Fetch helper for media (image or audio) and return as inline base64 object for Gemini
  */
-async function fetchImageAsInlineData(url) {
+async function fetchMediaAsInlineData(url) {
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
     const arrayBuffer = await res.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    const mimeType = res.headers.get('content-type') || 'image/jpeg';
+    const mimeType = res.headers.get('content-type') || 'application/octet-stream';
     return {
       inlineData: {
         mimeType,
@@ -148,7 +148,7 @@ async function fetchImageAsInlineData(url) {
       },
     };
   } catch (err) {
-    console.error('Failed to fetch image for Gemini vision:', err.message);
+    console.error('Failed to fetch media for Gemini:', err.message);
     return null;
   }
 }
@@ -163,7 +163,7 @@ export async function describeImage(imageUrl) {
   }
 
   console.log(`📸 [Gemini Vision] Analyzing image attachment: ${imageUrl}`);
-  const imageData = await fetchImageAsInlineData(imageUrl);
+  const imageData = await fetchMediaAsInlineData(imageUrl);
   if (!imageData) return '';
 
   const payload = {
@@ -196,10 +196,52 @@ export async function describeImage(imageUrl) {
 }
 
 /**
+ * Audio helper to describe a voice message and get text keywords for product search
+ */
+export async function describeAudio(audioUrl) {
+  if (!GEMINI_API_KEY) {
+    console.log('🎤 [Gemini Audio] No GEMINI_API_KEY provided. Skipping.');
+    return '';
+  }
+
+  console.log(`🎤 [Gemini Audio] Analyzing voice message: ${audioUrl}`);
+  const audioData = await fetchMediaAsInlineData(audioUrl);
+  if (!audioData) return '';
+
+  const payload = {
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          audioData,
+          {
+            text: 'Listen to this voice message from a customer. If they are asking about a product, return 2-3 simple search keywords in English representing the item, color, and type (e.g. "red saree", "gold necklace"). If not product-related, return an empty string. Do not write sentences.',
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: 20,
+    },
+  };
+
+  try {
+    const response = await callGemini(payload);
+    const resultText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    console.log(`🎯 [Gemini Audio] Identified search keywords: "${resultText.trim()}"`);
+    return resultText.trim();
+  } catch (err) {
+    console.error('⚠️ [Gemini Audio] Failed to identify product:', err.message);
+    return '';
+  }
+}
+
+/**
  * Chat Completion helper — uses Gemini structured output (responseSchema)
  * to guarantee valid JSON responses instead of the old ---CONTROL--- parsing.
  */
-export async function getAIReply(systemPrompt, userText, imageUrl, history = []) {
+export async function getAIReply(systemPrompt, userText, imageUrl, history = [], audioUrl) {
   const contents = [];
 
   // Load chat history turns into Gemini contents format
@@ -214,15 +256,24 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [])
 
   // Inject image inline data if any
   if (imageUrl) {
-    const imageData = await fetchImageAsInlineData(imageUrl);
+    const imageData = await fetchMediaAsInlineData(imageUrl);
     if (imageData) {
       currentUserParts.push(imageData);
       currentUserParts.push({ text: `[কাস্টমার একটি ছবি পাঠিয়েছেন: ${imageUrl}]` });
     }
   }
 
+  // Inject audio inline data if any
+  if (audioUrl) {
+    const audioData = await fetchMediaAsInlineData(audioUrl);
+    if (audioData) {
+      currentUserParts.push(audioData);
+      currentUserParts.push({ text: '[কাস্টমার একটি ভয়েস মেসেজ পাঠিয়েছেন]' });
+    }
+  }
+
   currentUserParts.push({
-    text: userText || '[Customer sent an image with no caption]',
+    text: userText || '[Customer sent media with no caption]',
   });
 
   contents.push({

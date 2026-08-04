@@ -8,7 +8,7 @@
  */
 
 import { searchCachedCatalog } from './catalogCache.js';
-import { describeImage } from './ai.js';
+import { describeImage, describeAudio } from './ai.js';
 
 /**
  * Expand queries to map spelling variants of popular categories in the database.
@@ -61,10 +61,11 @@ function expandQueryKeywords(messageText) {
 /**
  * @param {string} messageText
  * @param {string|undefined} imageUrl
+ * @param {string|undefined} audioUrl
  * @param {string|null} pendingProductName
  * @returns {Promise<Array>}
  */
-export async function searchProducts(messageText, imageUrl, pendingProductName = null) {
+export async function searchProducts(messageText, imageUrl, audioUrl, pendingProductName = null) {
   const searchQueries = [];
 
   if (messageText?.trim()) {
@@ -82,6 +83,18 @@ export async function searchProducts(messageText, imageUrl, pendingProductName =
       }
     } catch (e) {
       console.error('Failed to describe image during search:', e.message);
+    }
+  }
+
+  if (audioUrl) {
+    try {
+      console.log(`🎤 [Product Search] Analyzing voice message: ${audioUrl}`);
+      const audioKeywords = await describeAudio(audioUrl);
+      if (audioKeywords && audioKeywords.trim().length >= 2) {
+        searchQueries.push(audioKeywords);
+      }
+    } catch (e) {
+      console.error('Failed to describe audio during search:', e.message);
     }
   }
 
