@@ -819,7 +819,7 @@
     BigBazar <span class="hide-mobile">AI Agent</span>
   </div>
   <div class="topbar-right">
-    <div id="notiBell" style="position:relative; cursor:pointer; padding:6px; display:flex; align-items:center; justify-content:center; color:var(--muted-2); transition: color 0.2s; margin-right: 8px;" onclick="switchTab('convos')" title="View Active Handoffs">
+    <div id="notiBell" style="position:relative; cursor:pointer; padding:6px; display:flex; align-items:center; justify-content:center; color:var(--muted-2); transition: color 0.2s; margin-right: 8px;" onclick="switchTab('inbox')" title="View Alerts & Inbox">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
         <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
@@ -879,6 +879,7 @@
     <div class="panel">
       <div class="tabs">
         <button class="tab active" data-tab="convos">Conversations</button>
+        <button class="tab" data-tab="inbox">Inbox</button>
         <button class="tab" data-tab="products">Products</button>
         <button class="tab" data-tab="orders">Orders</button>
         <button class="tab" data-tab="training">Training</button>
@@ -896,11 +897,35 @@
                 <th class="hide-mobile">State</th>
                 <th>Bot Status</th>
                 <th class="hide-mobile">Reason Paused</th>
+                <th class="hide-mobile">Last Message</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody id="tblConvos">
-              <tr><td colspan="5" class="empty">Loading…</td></tr>
+              <tr><td colspan="6" class="empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Inbox tab (unanswered queries + handoffs) -->
+      <div class="tab-body" id="tab-inbox">
+        <div class="panel-header" style="border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); display:flex; justify-content:space-between; align-items:center; padding: 12px 20px;">
+          <span style="font-size:13px; color:var(--text); font-weight:500;">AI Questions That Need Your Help</span>
+          <button class="btn btn-sm btn-primary" onclick="loadInbox()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Customer</th>
+                <th>Question</th>
+                <th class="hide-mobile">Category</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="tblInbox">
+              <tr><td colspan="4" class="empty">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -1082,10 +1107,21 @@
 
 <!-- Chat history modal -->
 <div class="overlay" id="overlayHistory">
-  <div class="modal" style="width: min(600px,94vw);">
+  <div class="modal" style="width: min(640px,94vw);">
     <h2 id="historyTitle">Chat History</h2>
     <p id="historyDesc">Last messages for this conversation.</p>
     <div class="chat-log" id="chatLog"></div>
+    <div style="padding: 12px 16px; border-top: 1px solid var(--border); background: rgba(0,0,0,0.15); display:flex; flex-direction:column; gap:10px;">
+      <div style="font-size:12px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:0.8px;">Reply as Moderator</div>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="replyText" placeholder="Type a reply to send to the customer..." style="flex:1; height:38px; padding:0 12px; background:var(--surface-2); border:1px solid var(--border-2); border-radius:8px; color:var(--text); font-family:inherit; font-size:13px;" onkeydown="if(event.key==='Enter')sendModeratorReply()">
+        <button class="btn btn-primary" onclick="sendModeratorReply()" style="height:38px;">Send</button>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input type="text" id="replyImageUrl" placeholder="Paste image URL to send photo..." style="flex:1; height:34px; padding:0 10px; background:var(--surface-2); border:1px solid var(--border-2); border-radius:8px; color:var(--text); font-family:inherit; font-size:12px;">
+        <button class="btn btn-sm btn-cyan" onclick="sendModeratorImage()" style="height:34px; white-space:nowrap;">Send Photo</button>
+      </div>
+    </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('overlayHistory')">Close</button>
     </div>
@@ -1282,14 +1318,16 @@
   function switchTab(id) {
     document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === id));
     document.querySelectorAll('.tab-body').forEach(el => el.classList.toggle('active', el.id === `tab-${id}`));
+    if (id === 'convos') loadConversations();
     if (id === 'training') loadTraining();
     if (id === 'knowledge') loadKnowledge();
     if (id === 'products') loadProducts();
+    if (id === 'inbox') loadInbox();
   }
 
   // ── Refresh ───────────────────────────────────────────────────────────────
   async function refreshAll() {
-    await Promise.all([ loadSettings(), loadConversations(), loadOrders(), loadProductStats() ]);
+    await Promise.all([ loadSettings(), loadConversations(), loadInbox(), loadOrders(), loadProductStats() ]);
     const now = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
     document.getElementById('lastRefreshNote').textContent = `Updated ${now}`;
   }
@@ -1351,9 +1389,16 @@
     // Update bell icon badge and wiggle animation
     const badge = document.getElementById('notiBadge');
     const bell = document.getElementById('notiBell');
-    if (pausedConvos.length > 0) {
+    let unansweredCount = 0;
+    try {
+      const unanswered = await api('/admin/unanswered');
+      unansweredCount = unanswered.filter(q => q.status === 'pending').length;
+    } catch (_) {}
+
+    const totalAlerts = pausedConvos.length + unansweredCount;
+    if (totalAlerts > 0) {
       badge.style.display = 'flex';
-      badge.textContent = pausedConvos.length;
+      badge.textContent = totalAlerts;
       bell.classList.add('wiggle');
     } else {
       badge.style.display = 'none';
@@ -1361,8 +1406,35 @@
       bell.classList.remove('wiggle');
     }
 
+    // Update notification cards to include unanswered queries
+    if (unansweredCount > 0) {
+      notificationsArea.style.display = 'flex';
+      const existingHtml = notificationsArea.innerHTML;
+      const unansweredCard = `
+        <div style="background:var(--amber-dim); border:1px solid rgba(245,158,11,0.2); border-radius:10px; padding:12px 18px; display:flex; justify-content:space-between; align-items:center; gap:16px;">
+          <div style="flex:1;">
+            <div style="font-weight:600; color:var(--amber); margin-bottom:2px; font-size:13px; display:flex; align-items:center; gap:6px;">
+              💬 Unanswered Questions (${unansweredCount})
+            </div>
+            <div style="font-size:12px; color:var(--text);">
+              Customers waiting for a reply. Open the <strong>Inbox</strong> tab to respond.
+            </div>
+          </div>
+          <div class="action-group">
+            <button class="btn btn-sm btn-amber" onclick="switchTab('inbox')">Open Inbox</button>
+          </div>
+        </div>
+      `;
+      if (!existingHtml.includes('Unanswered Questions')) {
+        notificationsArea.innerHTML = unansweredCard + existingHtml;
+      }
+    } else if (pausedConvos.length === 0) {
+      notificationsArea.style.display = 'none';
+      notificationsArea.innerHTML = '';
+    }
+
     if (!conversations.length) {
-      tbody.innerHTML = `<tr><td colspan="5" class="empty">No conversations yet.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="empty">No conversations yet.</td></tr>`;
       return;
     }
 
@@ -1374,6 +1446,11 @@
 
       const stateBadge = stateColor(c.state);
 
+      const history = c.message_history || [];
+      const lastMsg = history.length > 0 ? history[history.length - 1] : null;
+      const lastMsgText = lastMsg ? (lastMsg.content || '').slice(0, 60) : '—';
+      const lastMsgRole = lastMsg ? lastMsg.role : '';
+
       const actionBtn = paused
         ? `<button class="btn btn-sm btn-green" onclick="resumeBot('${e(c.sender_id)}')">▶ Resume</button>`
         : `<button class="btn btn-sm btn-amber" onclick="pauseBot('${e(c.sender_id)}')">⏸ Pause</button>`;
@@ -1383,6 +1460,7 @@
         <td class="hide-mobile">${stateBadge}</td>
         <td>${statusBadge}</td>
         <td class="hide-mobile" style="color:var(--muted);font-size:12px;">${e(c.paused_reason || '—')}</td>
+        <td class="hide-mobile" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--muted-2);" title="${e(lastMsgText)}">${lastMsgRole === 'user' ? '👤 ' : lastMsgRole === 'assistant' ? '🤖 ' : ''}${e(lastMsgText)}</td>
         <td>
           <div class="action-group">
             ${actionBtn}
@@ -1403,12 +1481,83 @@
   }
 
   async function resumeBot(id) {
-    await api(`/admin/conversations/${id}/resume`, 'POST');
+    await api(`/admin/conversations/${id}/resume`, 'POST`);
     toast('Bot resumed', 'success');
     loadConversations();
   }
 
+  async function loadInbox() {
+    const tbody = document.getElementById('tblInbox');
+    if (!tbody) return;
+    try {
+      const items = await api('/admin/unanswered');
+      if (!items.length) {
+        tbody.innerHTML = `<tr><td colspan="4" class="empty">No unanswered queries. Great job!</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = items.map(q => `
+        <tr>
+          <td><span class="mono">${e(q.sender_id)}</span></td>
+          <td style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${e(q.customer_message)}">${e(q.customer_message)}</td>
+          <td class="hide-mobile"><span class="badge badge-amber">${e(q.status)}</span></td>
+          <td>
+            <div class="action-group">
+              <button class="btn btn-sm btn-green" onclick="resolveQuery(${q.id}, '${e(q.sender_id)}')">Reply</button>
+              <button class="btn btn-sm btn-cyan" onclick="replyToQueryWithPhoto(${q.id}, '${e(q.sender_id)}')">Photo</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan="4" class="empty" style="color:var(--red);">Failed to load: ${e(err.message)}</td></tr>`;
+    }
+  }
+
+  async function resolveQuery(queryId, senderId) {
+    const reply = prompt('Enter your reply to the customer:');
+    if (!reply) return;
+    try {
+      await api('/admin/resolve-query', 'POST', {
+        queryId,
+        senderId,
+        replyText: reply,
+        isGlobal: false,
+      });
+      toast('Reply sent!', 'success');
+      loadInbox();
+    } catch (err) {
+      toast(`Failed: ${err.message}`, 'error');
+    }
+  }
+
+  async function replyToQueryWithPhoto(queryId, senderId) {
+    const imageUrl = prompt('Paste the image URL to send:');
+    if (!imageUrl) return;
+    const caption = prompt('Optional caption (leave empty for none):') || '';
+    try {
+      const baseUrl = `${window.location.protocol}//${window.location.host}`;
+      await api(`/admin/conversations/${senderId}/reply`, 'POST', {
+        imageUrl,
+        text: caption || undefined,
+        unpause: true,
+      });
+      await api('/admin/resolve-query', 'POST', {
+        queryId,
+        senderId,
+        replyText: caption || 'Here is the photo you asked for.',
+        isGlobal: false,
+      });
+      toast('Photo sent!', 'success');
+      loadInbox();
+    } catch (err) {
+      toast(`Failed: ${err.message}`, 'error');
+    }
+  }
+
+  let currentChatId = null;
+
   function viewHistory(id) {
+    currentChatId = id;
     const c = conversations.find(x => x.sender_id === id);
     if (!c) return;
     document.getElementById('historyTitle').textContent = `Chat · ${id}`;
@@ -1434,6 +1583,52 @@
     }
 
     document.getElementById('overlayHistory').classList.add('open');
+  }
+
+  async function sendModeratorReply() {
+    if (!currentChatId) return;
+    const text = document.getElementById('replyText').value.trim();
+    const imageUrl = document.getElementById('replyImageUrl').value.trim();
+    if (!text && !imageUrl) {
+      toast('Enter a message or image URL', 'error');
+      return;
+    }
+
+    try {
+      await api(`/admin/conversations/${currentChatId}/reply`, 'POST', {
+        text: text || undefined,
+        imageUrl: imageUrl || undefined,
+        unpause: true,
+      });
+      document.getElementById('replyText').value = '';
+      document.getElementById('replyImageUrl').value = '';
+      toast('Reply sent!', 'success');
+      loadConversations();
+      if (document.getElementById('overlayHistory').classList.contains('open')) {
+        viewHistory(currentChatId);
+      }
+    } catch (err) {
+      toast(`Failed to send: ${err.message}`, 'error');
+    }
+  }
+
+  async function sendModeratorImage() {
+    if (!currentChatId) return;
+    const imageUrl = document.getElementById('replyImageUrl').value.trim();
+    if (!imageUrl) {
+      toast('Paste an image URL first', 'error');
+      return;
+    }
+    try {
+      await api(`/admin/conversations/${currentChatId}/reply`, 'POST', {
+        imageUrl,
+        unpause: false,
+      });
+      document.getElementById('replyImageUrl').value = '';
+      toast('Photo sent!', 'success');
+    } catch (err) {
+      toast(`Failed to send photo: ${err.message}`, 'error');
+    }
   }
 
   // ── Orders ────────────────────────────────────────────────────────────────

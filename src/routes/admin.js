@@ -66,6 +66,88 @@ adminRouter.post('/conversations/:id/resume', async (req, res) => {
   }
 });
 
+adminRouter.post('/conversations/:id/reply', async (req, res) => {
+  try {
+    const { text, imageUrl, unpause } = req.body;
+    const senderId = req.params.id;
+    if (!text && !imageUrl) {
+      return res.status(400).json({ error: 'text or imageUrl is required' });
+    }
+
+    if (imageUrl) {
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      await sendImageMessage(senderId, imageUrl, baseUrl);
+    }
+    if (text) {
+      await sendMessage(senderId, text);
+    }
+
+    if (unpause) {
+      await updateConversation(senderId, {
+        paused_by_ai: false,
+        paused_reason: null,
+        state: 'GREETING',
+      });
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.get('/unanswered', async (_req, res) => {
+  try {
+    const list = await getUnansweredQueries(50);
+    res.json(list);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.post('/resolve-query', async (req, res) => {
+  try {
+    const { queryId, senderId, replyText, isGlobal, category, title } = req.body;
+
+    if (!senderId || !replyText) {
+      return res.status(400).json({ error: 'senderId and replyText are required' });
+    }
+
+    // 1. Send reply to customer via Messenger
+    await sendMessage(senderId, replyText);
+
+    // 2. Unpause AI for that conversation
+    await updateConversation(senderId, {
+      paused_by_ai: false,
+      paused_reason: null,
+      state: 'GREETING',
+    });
+
+    // 3. Mark query as resolved in D1
+    if (queryId) {
+      await resolveUnansweredQuery(queryId);
+    }
+
+    // 4. Active Learning: If global knowledge, save into Knowledge Base / Training Examples
+    if (isGlobal) {
+      await saveKnowledgeEntry({
+        category: category || 'general',
+        title: title || 'Product & Shop Q&A',
+        content: replyText,
+        is_active: 1,
+        priority: 1,
+      });
+
+      console.log(`[Active Learning] Learned new global knowledge: "${title || 'Q&A'}" -> "${replyText}"`);
+    }
+
+    res.json({ ok: true, learnedGlobal: !!isGlobal });
+  } catch (error) {
+    console.error('Resolve query error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ── Orders ────────────────────────────────────────────────────────────────────
 adminRouter.get('/orders', async (_req, res) => {
   try {
@@ -75,6 +157,7 @@ adminRouter.get('/orders', async (_req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 // ── Settings ──────────────────────────────────────────────────────────────────
 adminRouter.get('/settings', async (_req, res) => {
   try {
