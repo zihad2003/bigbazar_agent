@@ -311,8 +311,8 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [],
 
 /**
  * Parses the structured JSON response from Gemini.
- * With responseSchema, the output is guaranteed to be valid JSON,
- * but we still wrap in try/catch for safety.
+ * Handles truncated JSON (from oversized variant field) by repairing
+ * unclosed strings and trimming trailing garbage before parsing.
  */
 function parseAIResponse(rawText) {
   let cleanedText = rawText
@@ -320,18 +320,19 @@ function parseAIResponse(rawText) {
     .replace(/\s*```$/i, '')
     .trim();
 
+  const repaired = repairTruncatedJson(cleanedText);
+
   try {
-    const parsed = JSON.parse(cleanedText);
+    const parsed = JSON.parse(repaired);
     return sanitizeParsedReply(parsed);
   } catch (err) {
     console.error(`🚨 [PARSE_FAILURE] [Gemini] Failed to parse AI response as JSON. Error: ${err.message}`);
     console.error(`🚨 [PARSE_FAILURE] [Gemini] Raw response (first 500 chars): ${cleanedText.slice(0, 500)}`);
 
-    // Regex fallback for truncated/malformed JSON (same approach as groq.js)
-    const intentMatch = cleanedText.match(/"intent"\s*:\s*"([^"]+)"/);
-    const replyMatch = cleanedText.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-    const productNameMatch = cleanedText.match(/"productName"\s*:\s*"([^"]*)"/);
-    const productPriceMatch = cleanedText.match(/"productPrice"\s*:\s*(\d+)/);
+    const intentMatch = repaired.match(/"intent"\s*:\s*"([^"]+)"/);
+    const replyMatch = repaired.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    const productNameMatch = repaired.match(/"productName"\s*:\s*"([^"]*)"/);
+    const productPriceMatch = repaired.match(/"productPrice"\s*:\s*(\d+)/);
 
     if (replyMatch) {
       const fallback = {
@@ -348,6 +349,51 @@ function parseAIResponse(rawText) {
   }
 }
 
+/**
+ * Repairs truncated JSON by closing unclosed strings and trimming trailing garbage.
+ * This handles the case where Gemini's variant field overflows maxOutputTokens
+ * and the response gets cut mid-string.
+ */
+function repairTruncatedJson(text) {
+  if (!text || typeof text !== 'string') return text;
+
+  // Quick check: count unclosed quotes
+  const quoteCount = (text.match(/"/g) || []).length;
+  if (quoteCount % 2 === 0) return text;
+
+  // Find the last complete key-value pair by scanning backwards
+  // Look for the last occurrence of a complete field pattern: "key": value,
+  const lastCompleteField = text.search(/"(\w+)"\s*:\s*(?:"[^"]*"|\d+|true|false|null|\{[^}]*\}|\[[^\]]*\])[,}]?\s*$/) ;
+
+  // Alternative: find last closing brace of a complete value
+  const lastValidClose = Math.max(
+    text.lastIndexOf('",'),
+    text.lastIndexOf('"}'),
+    text.lastIndexOf('"]'),
+    text.lastIndexOf('",\n'),
+    text.lastIndexOf('"}'),
+    text.lastIndexOf('"]')
+  );
+
+  if (lastValidClose > 0) {
+    const trimmed = text.slice(0, lastValidClose + 1);
+    // Close any open objects/arrays and fix trailing comma
+    const openBraces = (trimmed.match(/\{/g) || []).length - (trimmed.match(/\}/g) || []).length;
+    const openBrackets = (trimmed.match(/\[/g) || []).length - (trimmed.match(/\]/g) || []).length;
+
+    let repaired = trimmed;
+    if (openBrackets > 0) repaired += ']'.repeat(openBrackets);
+    if (openBraces > 0) repaired += '}'.repeat(openBraces);
+
+    // Remove trailing comma before closing
+    repaired = repaired.replace(/,(\s*[}\]])/g, '$1');
+
+    return repaired;
+  }
+
+  return text;
+}
+
 /** Strip overly long values the model sometimes puts in optional fields */
 function sanitizeParsedReply(parsed) {
   const trim = (v, max = 120) => (typeof v === 'string' && v.length > max ? v.slice(0, max) : v);
@@ -356,14 +402,19 @@ function sanitizeParsedReply(parsed) {
     intent: parsed.intent || 'NONE',
     productName: trim(parsed.productName) || undefined,
     productPrice: parsed.productPrice || undefined,
-    variant: trim(parsed.variant, 60) || undefined,
+    variant: (() => {
+      const v = parsed.variant;
+      if (!v || typeof v !== 'string') return undefined;
+      if (v.length <= 60) return v || undefined;
+      const words = v.split(/\s+/).slice(0, 6);
+      return words.join(' ') || undefined;
+    })(),
     imageUrl: parsed.imageUrl || undefined,
     customerName: trim(parsed.customerName) || undefined,
     customerAddress: trim(parsed.customerAddress) || undefined,
     customerPhone: trim(parsed.customerPhone) || undefined,
   };
 
-  // Pass through paymentInfo if present and has at least one populated field
   if (parsed.paymentInfo && typeof parsed.paymentInfo === 'object') {
     const pi = parsed.paymentInfo;
     if (pi.paymentMethod || pi.senderNumber || pi.transactionId || pi.claimedAmount) {
