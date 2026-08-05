@@ -8,6 +8,13 @@ All notable changes to this project will be documented in this file.
 
 - **Audio understanding via Gemini**: Voice messages from Facebook Messenger are now processed using the same `gemini-2.0-flash` model — no new model, no new API, no additional cost.
 - **`describeAudio()` in `gemini.js`**: Fetches voice message audio, sends to Gemini with a prompt to extract 2-3 product search keywords (e.g. "red saree", "gold necklace"). Returns empty string on failure, mirroring `describeImage()`.
+- **Generic media fetcher**: Renamed `fetchImageAsInlineData` → `fetchMediaAsInlineData` (handles any media type).
+
+### Fixed — Fallback Model Image/Audio Support
+
+- **Graceful degradation for non-vision models**: When the primary model hits quota and falls back to a model that doesn't support image/audio input (e.g. `gemini-flash-lite-latest`), the system now retries with text-only instead of crashing with "this model does not support image input".
+- `getAIReply()` catches "does not support image/audio" errors and falls back to `getAIReplyTextOnly()`.
+- `describeImage()` and `describeAudio()` catch the same errors and return empty string gracefully.
 - **Generic media fetcher**: Renamed `fetchImageAsInlineData` → `fetchMediaAsInlineData` — now handles any media type (image, audio, etc.) with appropriate mime type detection.
 - **Audio in `getAIReply()`**: New optional `audioUrl` parameter. When present, audio is inlined as a Gemini part alongside text/image, with a Bengali context hint `[কাস্টমার একটি ভয়েস মেসেজ পাঠিয়েছেন]`.
 - **Audio in `messageHandler.js`**: Extracts `audioUrl` from Messenger attachments (same pattern as `imageUrl`), passes through to `searchProducts()` and `getAIReply()`.
