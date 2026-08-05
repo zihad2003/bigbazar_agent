@@ -190,6 +190,12 @@ export async function describeImage(imageUrl) {
     console.log(`🎯 [Gemini Vision] Identified search keywords: "${resultText.trim()}"`);
     return resultText.trim();
   } catch (err) {
+    const msg = (err.message || '').toLowerCase();
+    const noImageSupport = msg.includes('image') && (msg.includes('not support') || msg.includes('does not support'));
+    if (noImageSupport) {
+      console.warn('⚠️ [Gemini API] Model does not support image input. Returning empty keywords.');
+      return '';
+    }
     console.error('⚠️ [Gemini Vision] Failed to identify product:', err.message);
     return '';
   }
@@ -232,6 +238,12 @@ export async function describeAudio(audioUrl) {
     console.log(`🎯 [Gemini Audio] Identified search keywords: "${resultText.trim()}"`);
     return resultText.trim();
   } catch (err) {
+    const msg = (err.message || '').toLowerCase();
+    const noAudioSupport = msg.includes('audio') && (msg.includes('not support') || msg.includes('does not support'));
+    if (noAudioSupport) {
+      console.warn('⚠️ [Gemini API] Model does not support audio input. Returning empty keywords.');
+      return '';
+    }
     console.error('⚠️ [Gemini Audio] Failed to identify product:', err.message);
     return '';
   }
@@ -294,14 +306,26 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [],
     },
   };
 
-  const response = await callGemini(payload);
+  let response;
+  try {
+    response = await callGemini(payload);
+  } catch (err) {
+    const msg = (err.message || '').toLowerCase();
+    const noImageSupport = msg.includes('image') && (msg.includes('not support') || msg.includes('does not support'));
+    if (noImageSupport && (imageUrl || audioUrl)) {
+      console.warn('⚠️ [Gemini API] Model does not support image/audio input. Retrying with text-only.');
+      return getAIReplyTextOnly(systemPrompt, userText, history);
+    }
+    throw err;
+  }
+
   const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
   if (!rawText.trim()) {
     const finishReason = response.candidates?.[0]?.finishReason || 'UNKNOWN';
     console.warn(`⚠️ [Gemini API] Returned empty response. finishReason: ${finishReason}`);
     return {
-      reply: 'দুঃখিত, একটু কারিগরি সমস্যা হচ্ছে। দয়া করে আবার মেসেজ দিন।',
+      reply: 'দুঃখিত, একটু কারিগরি সমস্যা হচ্ছে। দয়া করে আবার মেসেজ দিন।',
       intent: 'NONE',
     };
   }
