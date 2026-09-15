@@ -37,7 +37,11 @@ export async function notifyModerator(payload) {
 function formatAlert(payload) {
   if (payload.type === 'HANDOFF_NEEDED') {
     const chatUrl = `https://business.facebook.com/latest/inbox/all?selected_item_id=${payload.senderId}`;
-    return `\u{1F91D} <b>Handoff needed</b>\nReason: ${payload.reason}\nCustomer ID: <code>${payload.senderId}</code>\nLast message: "${payload.lastMessage}"\n\n\u2693 <a href="${chatUrl}">Open Meta Business Suite Chat</a>\nOr use the admin panel to resume bot when finished.`;
+    let msg = `\u{1F91D} <b>Handoff needed</b>\nReason: ${payload.reason}\nCustomer ID: <code>${payload.senderId}</code>\nLast message: "${payload.lastMessage}"`;
+    if (payload.botDraft) msg += `\nBot draft: "${payload.botDraft}"`;
+    if (payload.screenshotUrl) msg += `\n\n\u{1F4F8} <a href="${payload.screenshotUrl}">View screenshot</a>`;
+    msg += `\n\n\u2693 <a href="${chatUrl}">Open Meta Business Suite Chat</a>\nOr use the admin panel to resume bot when finished.`;
+    return msg;
   }
 
   if (payload.type === 'NEW_ORDER') {

@@ -9,7 +9,9 @@
  * a read-through cache that resets on every server restart.
  */
 
-import { getAllProducts, getProductStats, searchD1Products } from './d1.js';
+import { buildSearchBlob, tokenizeQuery, scoreAgainstTokens } from '../utils/searchNormalize.js';
+import { getAllProducts as getD1Products, getProductStats, searchD1Products } from './d1.js';
+import { getAllProducts as getTiDBProducts } from '../db/tidb.js';
 
 // ── State ────────────────────────────────────────────────────────────────────
 let catalog = [];            // Array of product objects
@@ -24,13 +26,21 @@ const REFRESH_MS = Number(process.env.CATALOG_REFRESH_MS) || 300_000; // 5 min d
 
 async function refreshCatalog() {
   try {
-    const data = await getAllProducts({ limit: 2000 });
-    const products = data.products || [];
+    let products = [];
+    let source = 'tidb';
+    try {
+      const data = await getTiDBProducts({ limit: 2000 });
+      products = data.products || [];
+    } catch (tidbErr) {
+      console.warn(`[CatalogCache] TiDB refresh failed (${tidbErr.message}). Falling back to D1 cache.`);
+      source = 'd1';
+      const data = await getD1Products({ limit: 2000 });
+      products = data.products || [];
+    }
 
     const newMap = new Map();
     for (const p of products) {
-      // Build a lowercased searchable blob for substring matching
-      p._searchBlob = `${(p.name || '').toLowerCase()} ${(p.category || '').toLowerCase()}`;
+      p._searchBlob = buildSearchBlob(p);
       newMap.set(String(p.id), p);
     }
 
@@ -39,11 +49,9 @@ async function refreshCatalog() {
     lastRefreshedAt = new Date().toISOString();
     initialLoadDone = true;
 
-    console.log(`[CatalogCache] refreshed ${products.length} products at ${lastRefreshedAt}`);
+    console.log(`[CatalogCache] refreshed ${products.length} products from ${source} at ${lastRefreshedAt}`);
   } catch (err) {
     console.error(`[CatalogCache] refresh failed — serving stale data. Error: ${err.message}`);
-    // If this was the very first attempt, mark it so cold-start fallback still works
-    // but don't clear existing good data
   }
 }
 
@@ -68,34 +76,32 @@ export function getCacheStatus() {
 }
 
 /**
- * Substring search against the in-memory catalog, mirroring D1's
- * `WHERE name LIKE ? OR category LIKE ?` behavior.
- *
+ * Token overlap search against the in-memory catalog.
  * Falls back to live D1 if the cache hasn't completed its first load yet.
  */
 export async function searchCachedCatalog(query, limit = 5) {
-  // Cold-start fallback: if initial load hasn't finished, hit D1 directly
   if (!initialLoadDone) {
+    const tokens = tokenizeQuery(query);
+    const fallbackQuery = tokens[0] || query;
     console.log('[CatalogCache] Initial load pending — falling back to live D1 search');
-    return searchD1Products(query, limit);
+    return searchD1Products(fallbackQuery, limit);
   }
 
-  if (!query || !query.trim()) return [];
+  const tokens = tokenizeQuery(query);
+  if (tokens.length === 0) return [];
 
-  const lower = query.toLowerCase().trim();
-  const results = [];
-
+  const scored = [];
   for (const p of catalog) {
-    if (p._searchBlob.includes(lower)) {
-      results.push(p);
-      if (results.length >= limit) break;
-    }
+    const score = scoreAgainstTokens(p._searchBlob, tokens);
+    if (score > 0) scored.push({ product: p, score });
   }
 
-  // Sort: in-stock first (matches TiDB ORDER BY stock DESC)
-  results.sort((a, b) => (b.stock || 0) - (a.stock || 0));
+  scored.sort((a, b) => b.score - a.score || (b.product.stock || 0) - (a.product.stock || 0));
 
-  return results;
+  return scored.slice(0, limit).map(({ product, score }) => {
+    product._score = score;
+    return product;
+  });
 }
 
 /**

@@ -14,16 +14,44 @@
  *  - AI reply field changed from .text to .reply (structured JSON output)
  */
 
-import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId, getRelevantTrainingExamples, getActiveKnowledgeBase, saveUnansweredQuery, updateOrderPaymentClaim } from './d1.js';
+import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId, saveUnansweredQuery, updateOrderPaymentClaim, logAgentEvent } from './d1.js';
+import { retrieveKnowledge, retrieveTraining } from './ragRetrieve.js';
 import { getAIReply } from './ai.js';
 import { searchProducts } from './productSearch.js';
-import { saveOrder } from './orderService.js';
+import { saveOrder, findDuplicateOrder } from './orderService.js';
 import { sendMessage, sendImageMessage, sendTypingIndicator } from './messenger.js';
 import { notifyModerator } from './notifier.js';
-import { detectHandoffIntent, extractOrderField, isProductQuery } from '../utils/nlp.js';
+import { detectHandoffIntent, isProductQuery } from '../utils/nlp.js';
+import { getProductImageUrls } from '../utils/searchNormalize.js';
+import {
+  resolvePhone,
+  validateOrderFields,
+  calculateDelivery,
+  calculateAdvance,
+  orderFormReply,
+  missingFieldsReply,
+  orderConfirmReply,
+  duplicateOrderReply,
+} from '../utils/orderRules.js';
 import { buildSystemPrompt } from '../utils/prompts.js';
 
 const userLocks = new Map();
+const processedMids = new Map();
+const MID_TTL_MS = 10 * 60 * 1000;
+
+function pruneProcessedMids() {
+  if (processedMids.size < 500) return;
+  const cutoff = Date.now() - MID_TTL_MS;
+  for (const [id, ts] of processedMids) {
+    if (ts < cutoff) processedMids.delete(id);
+  }
+}
+
+function rememberMid(mid) {
+  if (!mid) return;
+  pruneProcessedMids();
+  processedMids.set(mid, Date.now());
+}
 
 export async function handleMessage(event, baseUrl = '') {
   // Ignore delivery/read receipts and echo messages
@@ -31,6 +59,12 @@ export async function handleMessage(event, baseUrl = '') {
   if (event.message.is_echo) return;
 
   const senderId = event.sender.id;
+  const mid = event.message.mid;
+
+  if (mid && processedMids.has(mid)) {
+    console.log(`⏭ [Idempotency] Skipping duplicate mid ${mid}`);
+    return;
+  }
 
   // ── Concurrency Lock ─────────────────────────────────────────────────────────
   while (userLocks.has(senderId)) {
@@ -40,6 +74,7 @@ export async function handleMessage(event, baseUrl = '') {
   const lockPromise = new Promise(resolve => { resolveLock = resolve; });
   userLocks.set(senderId, lockPromise);
 
+  let failed = false;
   try {
     // ── 1. Global kill switch ────────────────────────────────────────────────────
     const autoReplyEnabled = await getSettingCached('AUTO_REPLY_ENABLED', 'true');
@@ -71,13 +106,20 @@ export async function handleMessage(event, baseUrl = '') {
 
     // ── 3. Load conversation state ───────────────────────────────────────────────
     const conversation = await getOrCreateConversation(senderId);
+    const startedAt = Date.now();
+    let products = [];
+    let visual = null;
+    let lastOrderId = null;
 
     // ── 4. Human moderator active — do nothing ───────────────────────────────────
     if (conversation.paused_by_ai) return;
 
     // ── 5. Handoff detection (fast, no AI needed) ────────────────────────────────
     if (detectHandoffIntent(messageText)) {
-      await triggerHandoff(senderId, conversation, 'Customer requested human agent');
+      await triggerHandoff(senderId, conversation, 'Customer requested human agent', messageText, {
+        screenshotUrl: imageUrl,
+        startedAt,
+      });
       return;
     }
 
@@ -115,15 +157,67 @@ export async function handleMessage(event, baseUrl = '') {
 
     // ── 7. AI path — only runs when needsAI = true ───────────────────────────────
     if (needsAI) {
-      let products = [];
+      const isPaymentStage = conversation.state === 'ORDER_CONFIRM';
+
       if (imageUrl || audioUrl || isProductQuery(messageText)) {
         try {
-          products = await searchProducts(messageText, imageUrl, audioUrl, conversation.pending_product_name);
+          if (isPaymentStage && imageUrl) {
+            console.log('💳 [Search] Skipping product visual match — conversation is in payment stage');
+          } else {
+            const searchResult = await searchProducts(messageText, imageUrl, audioUrl, conversation.pending_product_name);
+            products = searchResult.products || [];
+            visual = searchResult.visual || null;
+          }
         } catch (dbErr) {
-          console.error('⚠️ [TiDB Error] Failed to search products in database:', dbErr.message);
-          // Continue gracefully with empty products array so AI can still reply
+          console.error('⚠️ [Catalog Error] Failed to search products:', dbErr.message);
         }
       }
+
+      if (visual?.kind === 'NONE' && visual.parse?.imageKind === 'product') {
+        await triggerHandoff(senderId, conversation, 'Screenshot did not match catalog', messageText, {
+          screenshotUrl: imageUrl,
+          screenshotMatch: 'NONE',
+          retrievedIds: '',
+          startedAt,
+        });
+        return;
+      }
+
+      let skipAi = false;
+      let sentProductImage = false;
+
+      if (visual?.kind === 'AMBIGUOUS' && products.length >= 2) {
+        for (const p of products.slice(0, 2)) {
+          const url = getProductImageUrls(p)[0];
+          if (!url) continue;
+          try {
+            await sendImageMessage(senderId, url, baseUrl);
+            sentProductImage = true;
+          } catch (e) {
+            console.error('Failed to send clarify image:', e.message);
+          }
+        }
+        reply = 'এই দুইটার মধ্যে কোনটা আপনার ছবির মতো? উপরেরটা নাকি নিচেরটা?';
+        skipAi = true;
+      }
+
+      if (visual?.kind === 'HIGH' && products[0]) {
+        stateUpdate = {
+          pending_product_name: products[0].name,
+          pending_product_price: Number(products[0].price) || null,
+        };
+        const url = getProductImageUrls(products[0])[0];
+        if (url) {
+          try {
+            await sendImageMessage(senderId, url, baseUrl);
+            sentProductImage = true;
+          } catch (e) {
+            console.error('Failed to send matched product image:', e.message);
+          }
+        }
+      }
+
+      if (!skipAi) {
 
       // Fetch previous orders to customize returning customer vibe
       const pastOrders = await getOrdersBySenderId(senderId, 3);
@@ -147,17 +241,16 @@ export async function handleMessage(event, baseUrl = '') {
       // Fetch training examples (moderator corrections) for relevant context
       let trainingExamples = [];
       try {
-        trainingExamples = await getRelevantTrainingExamples(messageText, 3);
+        trainingExamples = await retrieveTraining(messageText, 3);
       } catch (e) {
-        console.warn('Training examples fetch failed (table may not exist yet):', e.message);
+        console.warn('Training retrieve failed:', e.message);
       }
 
-      // Fetch dynamic knowledge base rules
       let knowledgeBase = [];
       try {
-        knowledgeBase = await getActiveKnowledgeBase();
+        knowledgeBase = await retrieveKnowledge(messageText, 5);
       } catch (e) {
-        console.warn('Knowledge base fetch failed:', e.message);
+        console.warn('Knowledge retrieve failed:', e.message);
       }
 
       const historySlice = (conversation.message_history ?? []).slice(-16);
@@ -172,6 +265,7 @@ export async function handleMessage(event, baseUrl = '') {
         customerProfile,
         trainingExamples,
         knowledgeBase,
+        visualMatch: visual,
       };
 
       const systemPrompt = buildSystemPrompt(context);
@@ -187,13 +281,14 @@ export async function handleMessage(event, baseUrl = '') {
 
       // Act on AI intent flags
       if (aiResult.intent === 'PRODUCT_FOUND' && aiResult.productName) {
+        const grounded = visual?.kind === 'HIGH' && products[0] ? products[0] : null;
         stateUpdate = {
-          pending_product_name: aiResult.productName,
-          pending_product_price: aiResult.productPrice ?? null,
+          pending_product_name: grounded?.name || aiResult.productName,
+          pending_product_price: grounded ? Number(grounded.price) : (aiResult.productPrice ?? null),
           pending_variant: aiResult.variant ?? null,
         };
 
-        if (aiResult.imageUrl && typeof aiResult.imageUrl === 'string' && aiResult.imageUrl.trim().toLowerCase().startsWith('http')) {
+        if (!sentProductImage && aiResult.imageUrl && typeof aiResult.imageUrl === 'string' && aiResult.imageUrl.trim().toLowerCase().startsWith('http')) {
           try {
             await sendImageMessage(senderId, aiResult.imageUrl.trim(), baseUrl);
           } catch (e) {
@@ -208,140 +303,122 @@ export async function handleMessage(event, baseUrl = '') {
           pending_variant: aiResult.variant || conversation.pending_variant || null,
         };
 
-        if (!aiResult.reply.includes('নাম:') && !aiResult.reply.includes('ঠিকানা:')) {
-          reply = aiResult.reply + '\n\n' +
-            `Thank you for contacting Big Bazar! \n` +
-            `✨ Assalamu Alaikum!\n\n` +
-            `অর্ডার করতে \n` +
-            `নাম:\n` +
-            `নাম্বার :\n` +
-            `ঠিকানা :\n` +
-            `ডেলিভারি চার্জ সমূহ :\n` +
-            `• মিরসরাই : ফ্রি \n` +
-            `• চট্টগ্রাম : ১০০ টাকা \n` +
-            `• সারা বাংলাদেশের: ১৫০ টাকা \n` +
-            `(send money) \n\n` +
-            `এবং 01877765535 এই নাম্বারে ডেলিভারি চার্জ এডবান্স করে লাস্ট ডিজিট বলুন সাথে পন্যের স্ক্রিনশট দিন।`;
+        if (!aiResult.reply.includes('নাম:')) {
+          reply = `${aiResult.reply}\n\n${orderFormReply()}`;
         } else {
           reply = aiResult.reply;
         }
       } else if (aiResult.intent === 'CONFIRM_ORDER') {
         const customerName = (aiResult.customerName || conversation.order_name || '').trim();
         const customerAddress = (aiResult.customerAddress || conversation.order_address || '').trim();
-        const customerPhone = (aiResult.customerPhone || conversation.order_phone || '').trim();
+        const customerPhone = resolvePhone(aiResult.customerPhone, conversation.order_phone, messageText);
 
         const finalProductName = conversation.pending_product_name || aiResult.productName;
         const finalProductPrice = Number(conversation.pending_product_price || aiResult.productPrice);
         const finalVariant = conversation.pending_variant || aiResult.variant || null;
 
-        if (!finalProductName || isNaN(finalProductPrice)) {
-          reply = `আপনি কোন প্রোডাক্টটি অর্ডার করতে চাচ্ছেন দয়া করে একটু বলবেন? তাহলে আমি সঠিক দামটি মিলিয়ে অর্ডারটি কনফার্ম করতে পারব।`;
+        const checked = validateOrderFields({
+          name: customerName,
+          address: customerAddress,
+          phone: customerPhone,
+          productName: finalProductName,
+          productPrice: finalProductPrice,
+        });
+
+        if (checked.errors.includes('product') || checked.errors.includes('price')) {
+          reply = 'আপনি কোন প্রোডাক্টটি অর্ডার করতে চাচ্ছেন একটু বলবেন? সঠিক দাম মিলিয়ে তারপর কনফার্ম করব।';
           stateUpdate = {
             state: 'AWAITING_ORDER_DETAILS',
             order_name: customerName || null,
             order_address: customerAddress || null,
-            order_phone: customerPhone || null
+            order_phone: customerPhone || null,
           };
-        } else if (!customerName || !customerAddress || !customerPhone) {
-          // Fallback if AI marked CONFIRM_ORDER but missed any extraction details
-          reply =
-            `অর্ডারটি কনফার্ম করতে অনুগ্রহ করে নাম, মোবাইল নম্বর এবং সম্পূর্ণ ঠিকানা একসাথে দিন।\n\n` +
-            `যেমন:\n` +
-            `• নাম: [আপনার নাম]\n` +
-            `• নাম্বার: [আপনার মোবাইল নম্বর]\n` +
-            `• ঠিকানা: [আপনার সম্পূর্ণ ঠিকানা]\n\n` +
-            `ধন্যবাদ!`;
-
-          // Persist any partial fields we did get
+        } else if (!checked.ok) {
+          reply = missingFieldsReply(checked.errors);
           stateUpdate = {
             state: 'AWAITING_ORDER_DETAILS',
-            order_name: customerName || conversation.order_name || null,
-            order_address: customerAddress || conversation.order_address || null,
+            order_name: checked.name || customerName || null,
+            order_address: checked.address || customerAddress || null,
             order_phone: customerPhone || conversation.order_phone || null,
           };
         } else {
-          // Calculate delivery charge based on address
-          const addr = customerAddress.toLowerCase();
-          let deliveryCharge = 150;
-          let deliveryZone = 'সারা বাংলাদেশ';
-
-          if (addr.includes('মিরসরাই') || addr.includes('মীরসরাই') || addr.includes('mirsharai') || addr.includes('mirsarai') || addr.includes('baraiyarhat') || addr.includes('বারইয়ারহাট')) {
-            deliveryCharge = 0;
-            deliveryZone = 'মীরসরাই (ফ্রি)';
-          } else if (addr.includes('চট্টগ্রাম') || addr.includes('chittagong') || addr.includes('ctg')) {
-            deliveryCharge = 100;
-            deliveryZone = 'চট্টগ্রাম জেলা';
-          }
-
-          const total = finalProductPrice + deliveryCharge;
-
-          // Calculate advance payment required
-          let advanceAmount = deliveryCharge;
-          let advanceNote = '';
-          if (finalProductPrice >= 5000) {
-            advanceAmount = 1000;
-            advanceNote = '৫ হাজার টাকার বেশি অর্ডারে ১০০০ টাকা অগ্রিম পরিশোধ করতে হবে।';
-          } else if (finalProductPrice >= 3000) {
-            advanceAmount = 500;
-            advanceNote = '৩ হাজার টাকার বেশি অর্ডারে ৫০০ টাকা অগ্রিম পরিশোধ করতে হবে।';
+          const dup = await findDuplicateOrder(senderId, finalProductName);
+          if (dup) {
+            reply = duplicateOrderReply(dup.id);
+            stateUpdate = {
+              state: 'ORDER_CONFIRM',
+              last_order_id: dup.id,
+              order_name: checked.name,
+              order_address: checked.address,
+              order_phone: checked.phone,
+              pending_product_name: finalProductName,
+              pending_product_price: checked.productPrice,
+              pending_variant: finalVariant,
+            };
           } else {
-            if (deliveryCharge > 0) {
-              advanceNote = `ডেলিভারি চার্জ (${deliveryCharge} টাকা) অর্ডার কনফার্ম করার সময় অগ্রিম পরিশোধ করতে হবে।`;
-            } else {
-              advanceNote = 'মীরসরাইয়ের মধ্যে ডেলিভারি চার্জ ফ্রি, তাই কোনো অগ্রিম পেমেন্ট লাগবে না।';
-            }
-          }
+            const delivery = calculateDelivery(checked.address);
+            const advance = calculateAdvance(checked.productPrice, delivery.charge);
+            const total = checked.productPrice + delivery.charge;
 
-          const order = await saveOrder({
-            sender_id: senderId,
-            name: customerName,
-            address: customerAddress,
-            phone: customerPhone,
-            product_name: finalProductName,
-            product_price: finalProductPrice,
-            variant: finalVariant,
-          });
+            const order = await saveOrder({
+              sender_id: senderId,
+              name: checked.name,
+              address: checked.address,
+              phone: checked.phone,
+              product_name: finalProductName,
+              product_price: checked.productPrice,
+              variant: finalVariant,
+              delivery_charge: delivery.charge,
+              delivery_zone: delivery.zone,
+              advance_amount: advance.amount,
+              total_amount: total,
+              webhook_mid: mid || null,
+            });
+            lastOrderId = order.id;
 
-          stateUpdate = {
-            state: 'ORDER_CONFIRM',
-            order_name: customerName,
-            order_address: customerAddress,
-            order_phone: customerPhone,
-            pending_product_name: finalProductName,
-            pending_product_price: finalProductPrice,
-            pending_variant: finalVariant,
-            last_order_id: order.id,
-          };
+            stateUpdate = {
+              state: 'ORDER_CONFIRM',
+              order_name: checked.name,
+              order_address: checked.address,
+              order_phone: checked.phone,
+              pending_product_name: finalProductName,
+              pending_product_price: checked.productPrice,
+              pending_variant: finalVariant,
+              last_order_id: order.id,
+            };
 
-          reply =
-            `✨ আপনার অর্ডার কনফার্মড!\n` +
-            `খুব শিগগিরই ডেলিভারির জন্য পাঠানো হবে। অনুগ্রহ করে ফোন চালু রাখুন 📞\n\n` +
-            `অর্ডার বিবরণ:\n` +
-            `• নাম: ${customerName}\n` +
-            `• পণ্য: ${finalProductName}${finalVariant ? ` (${finalVariant})` : ''}\n` +
-            `• ঠিকানা: ${customerAddress}\n` +
-            `• mobile: ${customerPhone}\n` +
-            `• মোট মূল্য: পণ্য ${finalProductPrice} টাকা + ডেলিভারি (${deliveryZone}) ${deliveryCharge} টাকা = মোট ${total} টাকা\n\n` +
-            `📝 পেমেন্ট নির্দেশাবলী:\n` +
-            `• বিকাশ (পার্সোনাল) নাম্বারে: 01877765535 (Send Money)\n` +
-            `• অগ্রিম পরিশোধের পরিমাণ: *${advanceAmount}* টাকা।\n` +
-            `• (${advanceNote})\n\n` +
-            `টাকা পাঠিয়ে অনুগ্রহ করে লাস্ট ৪ ডিজিট বলুন সাথে পন্যের স্ক্রিনশট দিন। প্রডাক্ট হাতে পেয়ে আমাদের কোয়ালিটি রিভিউ বা ছবি দিতে ভুলবেন না 😊\n` +
-            `ধন্যবাদ, Big Bazar 🌸`;
-
-          await notifyModerator({
-            type: 'NEW_ORDER',
-            order: {
-              id: order.id,
-              name: customerName,
+            reply = orderConfirmReply({
+              name: checked.name,
               product: finalProductName,
+              variant: finalVariant,
+              address: checked.address,
+              phone: checked.phone,
+              productPrice: checked.productPrice,
+              delivery,
+              advance,
               total,
-            },
-            senderId,
-          });
+            });
+
+            await notifyModerator({
+              type: 'NEW_ORDER',
+              order: {
+                id: order.id,
+                name: checked.name,
+                product: finalProductName,
+                total,
+              },
+              senderId,
+            });
+          }
         }
       } else if (aiResult.intent === 'HANDOFF') {
-        await triggerHandoff(senderId, conversation, 'AI could not resolve query');
+        await triggerHandoff(senderId, conversation, 'AI could not resolve query', messageText, {
+          screenshotUrl: imageUrl,
+          botDraft: aiResult.reply,
+          screenshotMatch: visual?.kind || null,
+          retrievedIds: (products || []).map(p => p.id).filter(Boolean).join(',') || null,
+          startedAt,
+        });
         return;
       }
 
@@ -382,15 +459,24 @@ export async function handleMessage(event, baseUrl = '') {
           console.error('Failed to update payment claim:', err.message);
         }
       }
+      } // skipAi
     }
 
-    // ── 8. Persist state + history ───────────────────────────────────────────────
+    // ── 8. Send first, then persist (failed send is not logged as a reply)
+    await sendTypingIndicator(senderId, false);
+    const outgoing = stripEmojis(reply);
+    if (outgoing) {
+      await sendMessage(senderId, outgoing);
+    } else {
+      console.warn(`⚠️ Empty reply skipped for PSID ${senderId}`);
+    }
+
     const userEntry = messageText || (imageUrl ? '[ছবি পাঠিয়েছে]' : audioUrl ? '[ভয়েস মেসেজ পাঠিয়েছে]' : null);
 
     const newHistory = [
-      ...(conversation.message_history ?? []).slice(-18), // keep last 18 turns
+      ...(conversation.message_history ?? []).slice(-18),
       ...(userEntry ? [{ role: 'user', content: userEntry, ts: Date.now() }] : []),
-      { role: 'assistant', content: reply, ts: Date.now() },
+      ...(outgoing ? [{ role: 'assistant', content: outgoing, ts: Date.now() }] : []),
     ];
 
     await updateConversation(senderId, {
@@ -399,11 +485,20 @@ export async function handleMessage(event, baseUrl = '') {
       updated_at: new Date().toISOString(),
     });
 
-    // ── 9. Send reply ────────────────────────────────────────────────────────────
-    await sendTypingIndicator(senderId, false);
-    await sendMessage(senderId, stripEmojis(reply));
+    await logAgentEvent({
+      sender_id: senderId,
+      reply_ms: Date.now() - startedAt,
+      screenshot_match: visual?.kind || null,
+      retrieved_ids: (products || []).map(p => p.id).filter(Boolean).join(',') || null,
+      handoff: 0,
+      order_id: lastOrderId,
+    });
+  } catch (err) {
+    failed = true;
+    await sendTypingIndicator(senderId, false).catch(() => {});
+    throw err;
   } finally {
-    // Release concurrency lock
+    if (!failed) rememberMid(mid);
     userLocks.delete(senderId);
     if (resolveLock) resolveLock();
   }
@@ -415,8 +510,21 @@ function stripEmojis(text) {
   return text.replace(/[\u{1F300}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{1F191}-\u{1F251}\u{1F680}-\u{1F6FF}\u{1F300}-\u{1F5FF}\u{1F900}-\u{1F9FF}\u{2702}-\u{27B0}\u{2190}-\u{21FF}]/gu, '').trim();
 }
 
-async function triggerHandoff(senderId, conversation, reason) {
-  const lastMessage = conversation.message_history?.slice(-1)?.[0]?.content ?? '';
+async function triggerHandoff(senderId, conversation, reason, currentMessage = '', extras = {}) {
+  const lastMessage = currentMessage || conversation.message_history?.slice(-1)?.[0]?.content || '';
+  const lastAssistant = [...(conversation.message_history || [])].reverse().find(m => m.role === 'assistant');
+  const botDraft = extras.botDraft || lastAssistant?.content || null;
+  const screenshotUrl = extras.screenshotUrl || null;
+  const retrievedIds = extras.retrievedIds || null;
+  const screenshotMatch = extras.screenshotMatch || null;
+
+  await sendTypingIndicator(senderId, false);
+
+  try {
+    await sendMessage(senderId, 'একটু অপেক্ষা করুন আমি দেখে জানাচ্ছি');
+  } catch (e) {
+    console.error('Handoff send failed:', e.message);
+  }
 
   await updateConversation(senderId, {
     paused_by_ai: true,
@@ -424,25 +532,35 @@ async function triggerHandoff(senderId, conversation, reason) {
     state: 'HANDOFF',
   });
 
-  // Save unanswered query to D1 active learning queue
   try {
     await saveUnansweredQuery({
       senderId,
       customerMessage: lastMessage || 'Missing product info / handoff requested',
+      botDraft,
+      screenshotUrl,
+      reason,
+      retrievedIds,
+      screenshotMatch,
     });
   } catch (e) {
     console.warn('Failed to log unanswered query:', e.message);
   }
 
-  await sendMessage(
-    senderId,
-    'একটু অপেক্ষা করুন আমি দেখে জানাচ্ছি'
-  );
+  await logAgentEvent({
+    sender_id: senderId,
+    reply_ms: extras.startedAt ? Date.now() - extras.startedAt : null,
+    screenshot_match: screenshotMatch,
+    retrieved_ids: retrievedIds,
+    handoff: 1,
+    order_id: null,
+  });
 
   await notifyModerator({
     type: 'HANDOFF_NEEDED',
     reason,
     senderId,
     lastMessage,
+    screenshotUrl,
+    botDraft,
   });
 }

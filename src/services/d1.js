@@ -10,6 +10,8 @@
  * accidentally corrupt your live storefront data.
  */
 
+import { decorateSla, clusterQueries, percentile } from '../utils/queryCluster.js';
+
 const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const DATABASE_ID = process.env.CLOUDFLARE_DATABASE_ID;
 const API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
@@ -172,17 +174,50 @@ export async function updateConversation(senderId, patch) {
   );
 }
 
-export async function saveOrder({ sender_id, name, address, phone, product_name, product_price, variant, payment_method, sender_number, transaction_id, claimed_amount, screenshot_url }) {
+export async function saveOrder({ sender_id, name, address, phone, product_name, product_price, variant, payment_method, sender_number, transaction_id, claimed_amount, screenshot_url, delivery_charge, delivery_zone, advance_amount, total_amount, webhook_mid }) {
+  // Server never auto-confirms money. New rows are unpaid until a moderator verifies.
   const status = (payment_method || sender_number || transaction_id || screenshot_url) ? 'pending_verification' : 'pending_payment';
-  const result = await executeQuery(
-    `INSERT INTO orders (sender_id, customer_name, customer_address, customer_phone, 
-     product_name, product_price, variant, status, payment_method, sender_number, transaction_id, claimed_amount, screenshot_url)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [sender_id, name, address, phone, product_name, product_price, variant, status,
-     payment_method || null, sender_number || null, transaction_id || null, claimed_amount || null, screenshot_url || null]
-  );
+  if (status === 'paid') {
+    throw new Error('Orders cannot be created as paid');
+  }
 
-  return { id: result.meta.last_row_id };
+  const params = [
+    sender_id, name, address, phone, product_name, product_price, variant, status,
+    payment_method || null, sender_number || null, transaction_id || null, claimed_amount || null, screenshot_url || null,
+    delivery_charge ?? null, delivery_zone || null, advance_amount ?? null, total_amount ?? null, webhook_mid || null,
+  ];
+
+  try {
+    const result = await executeQuery(
+      `INSERT INTO orders (sender_id, customer_name, customer_address, customer_phone,
+       product_name, product_price, variant, status, payment_method, sender_number, transaction_id, claimed_amount, screenshot_url,
+       delivery_charge, delivery_zone, advance_amount, total_amount, webhook_mid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params
+    );
+    return { id: result.meta.last_row_id };
+  } catch (err) {
+    const msg = String(err.message || '');
+    if (!msg.includes('no such column')) throw err;
+    const result = await executeQuery(
+      `INSERT INTO orders (sender_id, customer_name, customer_address, customer_phone,
+       product_name, product_price, variant, status, payment_method, sender_number, transaction_id, claimed_amount, screenshot_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params.slice(0, 13)
+    );
+    return { id: result.meta.last_row_id };
+  }
+}
+
+export async function findRecentDuplicateOrder(senderId, productName) {
+  const result = await executeQuery(
+    `SELECT * FROM orders
+     WHERE sender_id = ? AND product_name = ?
+       AND status IN ('pending_payment', 'pending_verification')
+     ORDER BY id DESC LIMIT 5`,
+    [senderId, productName]
+  );
+  return result?.results || [];
 }
 
 export async function getConversations(limit = 50) {
@@ -339,11 +374,15 @@ export async function updateTrainingExample(id, { customerMessage, wrongBotReply
 }
 
 export async function createManualOrder({ sender_id, customer_name, customer_address, customer_phone, product_name, product_price, variant, status, payment_method, sender_number, transaction_id, claimed_amount, screenshot_url }) {
+  if (status === 'paid') {
+    throw new Error('Orders cannot be created as paid');
+  }
+  const safeStatus = status === 'pending_verification' ? 'pending_verification' : 'pending_payment';
   const result = await executeQuery(
     `INSERT INTO orders (sender_id, customer_name, customer_address, customer_phone, 
      product_name, product_price, variant, status, payment_method, sender_number, transaction_id, claimed_amount, screenshot_url, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-    [sender_id, customer_name, customer_address, customer_phone, product_name, product_price, variant, status || 'pending_payment',
+    [sender_id, customer_name, customer_address, customer_phone, product_name, product_price, variant, safeStatus,
      payment_method || null, sender_number || null, transaction_id || null, claimed_amount || null, screenshot_url || null]
   );
   return { id: result.meta.last_row_id };
@@ -435,20 +474,73 @@ export async function upsertD1Products(products) {
 
 // ── Unanswered Queries (Active Learning Queue) ─────────────────────────────
 
-export async function saveUnansweredQuery({ senderId, customerMessage }) {
-  await executeQuery(
-    `INSERT INTO unanswered_queries (sender_id, customer_message, status, created_at)
-     VALUES (?, ?, 'pending', datetime('now'))`,
-    [senderId, customerMessage]
-  );
+export async function saveUnansweredQuery({ senderId, customerMessage, botDraft, screenshotUrl, reason, retrievedIds, screenshotMatch }) {
+  const params = [
+    senderId,
+    customerMessage,
+    botDraft || null,
+    screenshotUrl || null,
+    reason || null,
+    retrievedIds || null,
+    screenshotMatch || null,
+  ];
+  try {
+    await executeQuery(
+      `INSERT INTO unanswered_queries (sender_id, customer_message, status, bot_draft, screenshot_url, reason, retrieved_ids, screenshot_match, created_at)
+       VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, datetime('now'))`,
+      params
+    );
+  } catch (err) {
+    if (!String(err.message || '').includes('no such column')) throw err;
+    await executeQuery(
+      `INSERT INTO unanswered_queries (sender_id, customer_message, status, created_at)
+       VALUES (?, ?, 'pending', datetime('now'))`,
+      [senderId, customerMessage]
+    );
+  }
 }
 
-export async function getUnansweredQueries(limit = 50) {
+export async function getUnansweredQueries(limit = 80) {
   const result = await executeQuery(
-    `SELECT * FROM unanswered_queries WHERE status = 'pending' ORDER BY created_at DESC LIMIT ?`,
+    `SELECT * FROM unanswered_queries WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?`,
     [limit]
   );
-  return result?.results || [];
+  return (result?.results || []).map(row => decorateSla(row));
+}
+
+export async function persistUnansweredClusters() {
+  const pending = await getUnansweredQueries(200);
+  const clusters = clusterQueries(pending);
+  let labeled = 0;
+  for (const cluster of clusters) {
+    if (cluster.items.length < 2) continue;
+    for (const item of cluster.items) {
+      try {
+        await executeQuery(
+          `UPDATE unanswered_queries SET cluster_id = ? WHERE id = ?`,
+          [cluster.id, item.id]
+        );
+        labeled++;
+      } catch (err) {
+        if (!String(err.message || '').includes('no such column')) throw err;
+        return { labeled: 0, clusters: clusters.filter(c => c.items.length >= 2).length };
+      }
+    }
+  }
+  return { labeled, clusters: clusters.filter(c => c.items.length >= 2).length };
+}
+
+export async function getUnansweredClusters() {
+  const pending = await getUnansweredQueries(200);
+  return clusterQueries(pending)
+    .filter(c => c.items.length >= 2)
+    .map(c => ({
+      id: c.id,
+      sample: c.sample,
+      count: c.items.length,
+      ids: c.ids,
+      sla_breached: c.items.filter(i => i.sla_breached).length,
+    }));
 }
 
 export async function resolveUnansweredQuery(id) {
@@ -522,5 +614,85 @@ export async function updateProductImages(productId, imagesArray) {
      WHERE id = ?`,
     [jsonStr, firstImage, String(productId)]
   );
+}
+
+// ── Agent metrics (reply time, screenshot match, handoff, orders) ──────────
+
+let agentEventsReady = false;
+
+async function ensureAgentEventsTable() {
+  if (agentEventsReady) return;
+  await executeQuery(`
+    CREATE TABLE IF NOT EXISTS agent_events (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      sender_id         TEXT,
+      reply_ms          INTEGER,
+      screenshot_match  TEXT,
+      retrieved_ids     TEXT,
+      handoff           INTEGER DEFAULT 0,
+      order_id          TEXT,
+      created_at        TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  agentEventsReady = true;
+}
+
+export async function logAgentEvent({ sender_id, reply_ms, screenshot_match, retrieved_ids, handoff, order_id }) {
+  try {
+    await ensureAgentEventsTable();
+    await executeQuery(
+      `INSERT INTO agent_events (sender_id, reply_ms, screenshot_match, retrieved_ids, handoff, order_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [
+        sender_id || null,
+        Number.isFinite(reply_ms) ? Math.round(reply_ms) : null,
+        screenshot_match || null,
+        retrieved_ids || null,
+        handoff ? 1 : 0,
+        order_id ? String(order_id) : null,
+      ]
+    );
+  } catch (err) {
+    console.warn('agent_events skip:', err.message);
+  }
+}
+
+export async function getAgentMetrics() {
+  try {
+    await ensureAgentEventsTable();
+    const result = await executeQuery(
+      `SELECT reply_ms, screenshot_match, handoff, order_id FROM agent_events ORDER BY id DESC LIMIT 500`
+    );
+    const rows = result?.results || [];
+    const times = rows.map(r => Number(r.reply_ms)).filter(n => Number.isFinite(n) && n > 0).sort((a, b) => a - b);
+    const shots = rows.filter(r => r.screenshot_match);
+    const high = shots.filter(r => r.screenshot_match === 'HIGH').length;
+    const handoffs = rows.filter(r => Number(r.handoff) === 1).length;
+    const orders = rows.filter(r => r.order_id).length;
+    return {
+      sample: rows.length,
+      p50_reply_ms: percentile(times, 50),
+      p95_reply_ms: percentile(times, 95),
+      handoff_count: handoffs,
+      handoff_rate: rows.length ? Math.round((handoffs / rows.length) * 100) : 0,
+      screenshot_count: shots.length,
+      screenshot_high: high,
+      screenshot_match_rate: shots.length ? Math.round((high / shots.length) * 100) : 0,
+      order_count: orders,
+    };
+  } catch (err) {
+    console.warn('agent metrics skip:', err.message);
+    return {
+      sample: 0,
+      p50_reply_ms: null,
+      p95_reply_ms: null,
+      handoff_count: 0,
+      handoff_rate: 0,
+      screenshot_count: 0,
+      screenshot_high: 0,
+      screenshot_match_rate: 0,
+      order_count: 0,
+    };
+  }
 }
 

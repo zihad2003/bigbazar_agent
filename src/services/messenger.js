@@ -6,6 +6,11 @@ const FB_API_VERSION = 'v21.0';
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 
 export async function sendMessage(recipientId, text) {
+  if (!text || !String(text).trim()) {
+    console.warn(`⚠️ [Messenger API] Skipping empty send to ${recipientId}`);
+    return;
+  }
+
   // Facebook caps message length at 2000 chars
   const chunks = splitMessage(text, 1900);
 
@@ -73,6 +78,7 @@ async function callSendAPI(payload) {
 }
 
 function splitMessage(text, maxLen) {
+  if (!text) return [];
   if (text.length <= maxLen) return [text];
   const chunks = [];
   let remaining = text;

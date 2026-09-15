@@ -61,3 +61,22 @@ export async function describeAudio(audioUrl) {
   }
   return '';
 }
+
+export async function parseScreenshot(imageUrl) {
+  if (AI_PROVIDER === 'gemini') {
+    try {
+      return await geminiService.parseScreenshot(imageUrl);
+    } catch (err) {
+      console.warn(`⚠️ [AI Wrapper] Screenshot parse failed (${err.message}).`);
+      return null;
+    }
+  }
+  return null;
+}
+
+export async function rerankVisualMatch(customerImageUrl, slots) {
+  if (AI_PROVIDER === 'gemini') {
+    return geminiService.rerankVisualMatch(customerImageUrl, slots);
+  }
+  return { verdict: 'NONE', bestIndex: -1, secondIndex: -1 };
+}

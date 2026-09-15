@@ -77,6 +77,37 @@ const AI_REPLY_SCHEMA = {
   required: ['reply', 'intent'],
 };
 
+const SCREENSHOT_PARSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    imageKind: {
+      type: 'STRING',
+      enum: ['product', 'payment', 'other'],
+      description: 'product = apparel/ad/reel screenshot; payment = bKash/Nagad receipt; other = unrelated',
+    },
+    ocrText: { type: 'STRING', description: 'Visible product name, code, or price text. Empty if none.' },
+    apparelType: { type: 'STRING', description: 'saree, 3piece, 2piece, kurti, gown, lehenga, panjabi, or empty' },
+    colors: { type: 'STRING', description: 'Dominant colors in English, comma-separated' },
+    pattern: { type: 'STRING', description: 'Short pattern notes e.g. floral, katan, embroidery' },
+    searchKeywords: { type: 'STRING', description: '4-8 English catalog search keywords. No sentences.' },
+    paymentMethod: { type: 'STRING', description: 'bkash, nagad, or empty' },
+    senderNumber: { type: 'STRING' },
+    transactionId: { type: 'STRING' },
+    claimedAmount: { type: 'NUMBER' },
+  },
+  required: ['imageKind', 'searchKeywords'],
+};
+
+const VISUAL_RERANK_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    verdict: { type: 'STRING', enum: ['HIGH', 'AMBIGUOUS', 'NONE'] },
+    bestIndex: { type: 'NUMBER', description: '0-based catalog candidate index, or -1' },
+    secondIndex: { type: 'NUMBER', description: 'Second match if AMBIGUOUS, else -1' },
+  },
+  required: ['verdict', 'bestIndex'],
+};
+
 /**
  * Fetch helper for Gemini REST API with automatic model fallback
  */
@@ -134,13 +165,17 @@ async function callGemini(payload, modelName = PRIMARY_MODEL) {
 /**
  * Fetch helper for media (image or audio) and return as inline base64 object for Gemini
  */
-async function fetchMediaAsInlineData(url) {
+export async function fetchMediaAsInlineData(url) {
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
     if (!res.ok) return null;
     const arrayBuffer = await res.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    const mimeType = res.headers.get('content-type') || 'application/octet-stream';
+    let mimeType = res.headers.get('content-type') || 'application/octet-stream';
+    if (mimeType.includes(';')) mimeType = mimeType.split(';')[0].trim();
+    if (!mimeType.startsWith('image/') && !mimeType.startsWith('audio/')) {
+      mimeType = 'image/jpeg';
+    }
     return {
       inlineData: {
         mimeType,
@@ -198,6 +233,128 @@ export async function describeImage(imageUrl) {
     }
     console.error('⚠️ [Gemini Vision] Failed to identify product:', err.message);
     return '';
+  }
+}
+
+function parseJsonObject(rawText, fallback = {}) {
+  if (!rawText || !String(rawText).trim()) return fallback;
+  let cleaned = String(rawText).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  try {
+    return { ...fallback, ...JSON.parse(cleaned) };
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Parse a customer photo/screenshot (TikTok/IG/FB/Reel UI chrome possible).
+ */
+export async function parseScreenshot(imageUrl) {
+  if (!GEMINI_API_KEY || !imageUrl) return null;
+
+  const imageData = await fetchMediaAsInlineData(imageUrl);
+  if (!imageData) return null;
+
+  const payload = {
+    contents: [{
+      role: 'user',
+      parts: [
+        imageData,
+        {
+          text: `This is a customer Messenger image. It may be a TikTok, Instagram, Facebook, or Reels screenshot with UI chrome, captions, watermarks, or a model wearing clothes — or a bKash/Nagad payment receipt, or unrelated.
+
+Ignore like-bars, captions, profile UI. Focus on the garment if present.
+If it is a payment receipt/screenshot, set imageKind=payment and extract method/number/trx/amount.
+Return JSON only.`,
+        },
+      ],
+    }],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 400,
+      responseMimeType: 'application/json',
+      responseSchema: SCREENSHOT_PARSE_SCHEMA,
+    },
+  };
+
+  try {
+    const response = await callGemini(payload);
+    const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const parsed = parseJsonObject(rawText, { imageKind: 'other', searchKeywords: '' });
+    console.log(`🎯 [Screenshot Parse] kind=${parsed.imageKind} keywords="${parsed.searchKeywords}" ocr="${(parsed.ocrText || '').slice(0, 80)}"`);
+    return parsed;
+  } catch (err) {
+    console.error('⚠️ [Screenshot Parse] failed:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Compare customer screenshot to labeled catalog candidate images.
+ * @param {string} customerImageUrl
+ * @param {Array<{ product: object, imageUrl: string }>} slots
+ */
+export async function rerankVisualMatch(customerImageUrl, slots) {
+  if (!GEMINI_API_KEY || !customerImageUrl || !slots?.length) {
+    return { verdict: 'NONE', bestIndex: -1, secondIndex: -1 };
+  }
+
+  const customerImage = await fetchMediaAsInlineData(customerImageUrl);
+  if (!customerImage) {
+    return { verdict: 'AMBIGUOUS', bestIndex: 0, secondIndex: slots.length > 1 ? 1 : -1 };
+  }
+
+  const parts = [
+    customerImage,
+    { text: 'IMAGE A is the customer screenshot (social-media chrome possible). The following images are catalog candidates.' },
+  ];
+
+  const fetched = [];
+  for (let i = 0; i < slots.length; i++) {
+    const img = await fetchMediaAsInlineData(slots[i].imageUrl);
+    if (!img) continue;
+    fetched.push({ catalogIndex: i, product: slots[i].product });
+    parts.push(img);
+    parts.push({ text: `CANDIDATE ${fetched.length - 1}: ${slots[i].product.name}` });
+  }
+
+  if (fetched.length === 0) {
+    return { verdict: 'AMBIGUOUS', bestIndex: 0, secondIndex: slots.length > 1 ? 1 : -1 };
+  }
+
+  parts.push({
+    text: `Which CANDIDATE is the same garment as IMAGE A? Same design/color/work counts even if one is a reel of a model and the other is a packshot. If two are equally plausible, verdict=AMBIGUOUS. If none match, verdict=NONE. bestIndex/secondIndex are CANDIDATE numbers (0..${fetched.length - 1}).`,
+  });
+
+  const payload = {
+    contents: [{ role: 'user', parts }],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 120,
+      responseMimeType: 'application/json',
+      responseSchema: VISUAL_RERANK_SCHEMA,
+    },
+  };
+
+  try {
+    const response = await callGemini(payload);
+    const rawText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const parsed = parseJsonObject(rawText, { verdict: 'NONE', bestIndex: -1, secondIndex: -1 });
+    const mapIdx = (n) => {
+      const i = Number(n);
+      if (!Number.isInteger(i) || i < 0 || i >= fetched.length) return -1;
+      return fetched[i].catalogIndex;
+    };
+    const result = {
+      verdict: ['HIGH', 'AMBIGUOUS', 'NONE'].includes(parsed.verdict) ? parsed.verdict : 'NONE',
+      bestIndex: mapIdx(parsed.bestIndex),
+      secondIndex: mapIdx(parsed.secondIndex),
+    };
+    console.log(`🎯 [Visual Rerank] ${JSON.stringify(result)}`);
+    return result;
+  } catch (err) {
+    console.error('⚠️ [Visual Rerank] failed:', err.message);
+    return { verdict: 'AMBIGUOUS', bestIndex: 0, secondIndex: slots.length > 1 ? 1 : -1 };
   }
 }
 
@@ -331,6 +488,11 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [],
   }
 
   return parseAIResponse(rawText);
+}
+
+/** Text-only retry when the model rejects image/audio parts. */
+async function getAIReplyTextOnly(systemPrompt, userText, history = []) {
+  return getAIReply(systemPrompt, userText, undefined, history, undefined);
 }
 
 /**

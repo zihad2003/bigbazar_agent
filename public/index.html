@@ -163,8 +163,22 @@
     /* ── Stats row ──────────────────────────────────────────────────────── */
     .stats-row {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
       gap: 16px;
+    }
+
+    .inbox-thumb {
+      width: 44px; height: 44px; object-fit: cover; border-radius: 6px;
+      border: 1px solid var(--border); background: var(--surface-2);
+    }
+    .sla-ok { color: var(--green); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .sla-late { color: var(--red); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .inbox-cluster {
+      background: var(--amber-dim);
+      border: 1px solid rgba(245,158,11,0.25);
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin: 12px 20px 0;
     }
 
     @media (max-width: 900px) { .stats-row { grid-template-columns: repeat(3,1fr); } }
@@ -873,6 +887,22 @@
         <div class="stat-label">Pending Payment</div>
         <div class="stat-value red" id="statPending">—</div>
       </div>
+      <div class="stat-card">
+        <div class="stat-label">SLA &gt; 2 min</div>
+        <div class="stat-value red" id="statSla">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Reply p50</div>
+        <div class="stat-value cyan" id="statP50">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Screenshot match</div>
+        <div class="stat-value" id="statSsMatch" style="color:var(--accent);">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Handoff rate</div>
+        <div class="stat-value amber" id="statHandoff">—</div>
+      </div>
     </div>
 
     <!-- Tabbed panel -->
@@ -911,21 +941,24 @@
       <!-- Inbox tab (unanswered queries + handoffs) -->
       <div class="tab-body" id="tab-inbox">
         <div class="panel-header" style="border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); display:flex; justify-content:space-between; align-items:center; padding: 12px 20px;">
-          <span style="font-size:13px; color:var(--text); font-weight:500;">AI Questions That Need Your Help</span>
+          <span style="font-size:13px; color:var(--text); font-weight:500;">২ মিনিট SLA কিউ — পুরনো আগে</span>
           <button class="btn btn-sm btn-primary" onclick="loadInbox()">Refresh</button>
         </div>
+        <div id="inboxClusters"></div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
+                <th>Wait</th>
                 <th>Customer</th>
                 <th>Question</th>
-                <th class="hide-mobile">Category</th>
+                <th class="hide-mobile">SS</th>
+                <th class="hide-mobile">Bot draft</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody id="tblInbox">
-              <tr><td colspan="4" class="empty">Loading…</td></tr>
+              <tr><td colspan="6" class="empty">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -1094,13 +1127,17 @@
 <div class="overlay open" id="overlayAuth">
   <div class="modal">
     <h2>Connect Dashboard</h2>
-    <p>Enter the <code>ADMIN_SECRET</code> from your <code>.env</code> to authenticate.</p>
+    <p>Enter the <code>ADMIN_SECRET</code> from your <code>.env</code> file to authenticate.</p>
+    <p style="font-size: 12px; color: var(--muted); margin-top: 6px; margin-bottom: 12px; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);">
+      🔑 Default secret configured in <code>.env</code>: <code style="color: var(--accent); font-weight: 600;">my_secret_agent</code>
+    </p>
     <div class="field">
       <label>Admin Secret</label>
       <input type="password" id="inpSecret" placeholder="Enter secret…" onkeydown="if(event.key==='Enter')saveSecret()">
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-primary" onclick="saveSecret()">Connect</button>
+    <div id="authError" style="color: var(--red); font-size: 13px; margin-top: 10px; display: none; background: var(--red-dim); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(244,63,94,0.2);"></div>
+    <div class="modal-footer" style="margin-top: 14px;">
+      <button class="btn btn-primary" id="btnConnect" onclick="saveSecret()">Connect</button>
     </div>
   </div>
 </div>
@@ -1153,6 +1190,32 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('overlayTeach')">বাতিল</button>
       <button class="btn btn-primary" onclick="saveTeach()">সংরক্ষণ করুন</button>
+    </div>
+  </div>
+</div>
+
+<!-- Inbox reply + teach -->
+<div class="overlay" id="overlayInboxReply">
+  <div class="modal" style="width: min(560px,94vw);">
+    <h2>ইনবক্স রিপ্লাই</h2>
+    <p id="inboxReplyMeta" style="color:var(--muted);font-size:13px;margin-bottom:12px;"></p>
+    <div id="inboxReplyThumbWrap" style="display:none;margin-bottom:12px;"></div>
+    <div class="field" style="margin-bottom:10px;">
+      <label>কাস্টমারের প্রশ্ন</label>
+      <div id="inboxReplyQuestion" class="detail-desc" style="margin:0;"></div>
+    </div>
+    <div class="field" style="margin-bottom:10px;">
+      <label>বট ড্রাফট — এডিট করে পাঠান</label>
+      <textarea id="inboxReplyText" rows="4" placeholder="কাস্টমারকে যে উত্তর যাবে..." style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--text);resize:vertical;font-family:inherit;"></textarea>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin:12px 0;cursor:pointer;font-size:13px;">
+      <input type="checkbox" id="inboxReplyTeach" style="width:16px;height:16px;">
+      এই উত্তর সব কাস্টমারের জন্য শিখিয়ে রাখব
+    </label>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('overlayInboxReply')">বাতিল</button>
+      <button class="btn btn-primary" onclick="sendInboxReply(false)">পাঠাও</button>
+      <button class="btn btn-green" onclick="sendInboxReply(true)">পাঠাও ও শেখাও</button>
     </div>
   </div>
 </div>
@@ -1270,32 +1333,82 @@
   let refreshTimer  = null;
 
   // ── Auth ──────────────────────────────────────────────────────────────────
-  document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('DOMContentLoaded', async () => {
     const secret = localStorage.getItem('admin_secret');
     if (secret) {
-      document.getElementById('overlayAuth').classList.remove('open');
-      refreshAll();
-      refreshTimer = setInterval(refreshAll, 30000);
+      try {
+        const res = await fetch('/admin/auth/check', {
+          headers: { 'x-admin-token': secret, 'Content-Type': 'application/json' }
+        });
+        if (res.ok) {
+          document.getElementById('overlayAuth').classList.remove('open');
+          refreshAll();
+          if (!refreshTimer) refreshTimer = setInterval(refreshAll, 30000);
+        } else {
+          localStorage.removeItem('admin_secret');
+          document.getElementById('overlayAuth').classList.add('open');
+          showAuthError('Saved secret token is invalid. Default is "my_secret_agent"');
+        }
+      } catch (e) {
+        document.getElementById('overlayAuth').classList.add('open');
+      }
+    } else {
+      document.getElementById('overlayAuth').classList.add('open');
     }
+
     // Tab buttons
     document.querySelectorAll('.tab').forEach(btn => {
       btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
   });
 
-  function saveSecret() {
-    const v = document.getElementById('inpSecret').value.trim();
-    if (!v) return;
-    localStorage.setItem('admin_secret', v);
-    document.getElementById('overlayAuth').classList.remove('open');
-    refreshAll();
-    refreshTimer = setInterval(refreshAll, 30000);
+  function showAuthError(msg) {
+    const errEl = document.getElementById('authError');
+    if (errEl) {
+      errEl.textContent = `❌ ${msg}`;
+      errEl.style.display = 'block';
+    }
   }
 
-  function logout() {
-    clearInterval(refreshTimer);
+  async function saveSecret() {
+    const inp = document.getElementById('inpSecret');
+    const btn = document.getElementById('btnConnect');
+    const errEl = document.getElementById('authError');
+    const v = inp.value.trim();
+    if (!v) {
+      showAuthError('Please enter an admin secret token.');
+      return;
+    }
+
+    if (btn) btn.disabled = true;
+    if (errEl) errEl.style.display = 'none';
+
+    try {
+      const res = await fetch('/admin/auth/check', {
+        headers: { 'x-admin-token': v, 'Content-Type': 'application/json' }
+      });
+      if (!res.ok) {
+        throw new Error(res.status === 401 ? 'Invalid Admin Secret token' : `Server error ${res.status}`);
+      }
+      localStorage.setItem('admin_secret', v);
+      document.getElementById('overlayAuth').classList.remove('open');
+      refreshAll();
+      if (!refreshTimer) refreshTimer = setInterval(refreshAll, 30000);
+    } catch (err) {
+      showAuthError(`${err.message}. Default in .env is "my_secret_agent"`);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function logout(reason = null) {
+    if (refreshTimer) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
+    }
     localStorage.removeItem('admin_secret');
-    location.reload();
+    document.getElementById('overlayAuth').classList.add('open');
+    if (reason) showAuthError(reason);
   }
 
   function headers() {
@@ -1309,7 +1422,7 @@
     const opts = { method, headers: headers() };
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(url, opts);
-    if (res.status === 401) { logout(); throw new Error('Unauthorized'); }
+    if (res.status === 401) { logout('Session expired or unauthorized.'); throw new Error('Unauthorized'); }
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.json();
   }
@@ -1327,7 +1440,7 @@
 
   // ── Refresh ───────────────────────────────────────────────────────────────
   async function refreshAll() {
-    await Promise.all([ loadSettings(), loadConversations(), loadInbox(), loadOrders(), loadProductStats() ]);
+    await Promise.all([ loadSettings(), loadConversations(), loadInbox(), loadOrders(), loadProductStats(), loadMetrics() ]);
     const now = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
     document.getElementById('lastRefreshNote').textContent = `Updated ${now}`;
   }
@@ -1488,46 +1601,129 @@
 
   async function loadInbox() {
     const tbody = document.getElementById('tblInbox');
+    const clusterBox = document.getElementById('inboxClusters');
     if (!tbody) return;
     try {
-      const items = await api('/admin/unanswered');
+      const [items, clusters] = await Promise.all([
+        api('/admin/unanswered'),
+        api('/admin/unanswered-clusters').catch(() => []),
+      ]);
+      inboxById = {};
+      (items || []).forEach(q => { inboxById[q.id] = q; });
+
+      const slaN = (items || []).filter(q => q.sla_breached).length;
+      const slaEl = document.getElementById('statSla');
+      if (slaEl) slaEl.textContent = slaN;
+
+      if (clusterBox) {
+        const groups = (clusters || []).filter(c => c.count >= 2);
+        clusterBox.innerHTML = groups.length
+          ? groups.map(c => `
+            <div class="inbox-cluster">
+              <strong>এই ${c.count}টা একই ধরনের প্রশ্ন</strong>
+              ${c.sla_breached ? ` · <span class="sla-late">${c.sla_breached} SLA</span>` : ''}
+              — Knowledge Base-এ লিখুন:<br>
+              <span style="color:var(--muted-2);font-size:12px;">${e((c.sample || '').slice(0, 140))}</span>
+            </div>`).join('')
+          : '';
+      }
+
       if (!items.length) {
-        tbody.innerHTML = `<tr><td colspan="4" class="empty">No unanswered queries. Great job!</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="empty">No unanswered queries. Great job!</td></tr>`;
         return;
       }
-      tbody.innerHTML = items.map(q => `
-        <tr>
+      tbody.innerHTML = items.map(q => {
+        const wait = formatWait(q.wait_ms);
+        const slaClass = q.sla_breached ? 'sla-late' : 'sla-ok';
+        const thumb = q.screenshot_url
+          ? `<img class="inbox-thumb" src="/proxy-image?url=${encodeURIComponent(q.screenshot_url)}" alt="" onerror="this.style.display='none'">`
+          : '—';
+        const draft = (q.bot_draft || '—').slice(0, 70);
+        return `<tr${q.sla_breached ? ' style="background:rgba(244,63,94,0.06)"' : ''}>
+          <td class="${slaClass}">${wait}</td>
           <td><span class="mono">${e(q.sender_id)}</span></td>
-          <td style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${e(q.customer_message)}">${e(q.customer_message)}</td>
-          <td class="hide-mobile"><span class="badge badge-amber">${e(q.status)}</span></td>
+          <td style="max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${e(q.customer_message)}">${e(q.customer_message)}</td>
+          <td class="hide-mobile">${thumb}</td>
+          <td class="hide-mobile" style="max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted);" title="${e(q.bot_draft || '')}">${e(draft)}</td>
           <td>
             <div class="action-group">
-              <button class="btn btn-sm btn-green" onclick="resolveQuery(${q.id}, '${e(q.sender_id)}')">Reply</button>
+              <button class="btn btn-sm btn-green" onclick="openInboxReply(${q.id})">Reply</button>
               <button class="btn btn-sm btn-cyan" onclick="replyToQueryWithPhoto(${q.id}, '${e(q.sender_id)}')">Photo</button>
             </div>
           </td>
-        </tr>
-      `).join('');
+        </tr>`;
+      }).join('');
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="4" class="empty" style="color:var(--red);">Failed to load: ${e(err.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--red);">Failed to load: ${e(err.message)}</td></tr>`;
     }
   }
 
-  async function resolveQuery(queryId, senderId) {
-    const reply = prompt('Enter your reply to the customer:');
-    if (!reply) return;
+  let inboxById = {};
+  let inboxReplyCtx = null;
+
+  function formatWait(ms) {
+    const n = Number(ms) || 0;
+    if (n < 60000) return `${Math.round(n / 1000)}s`;
+    const m = Math.floor(n / 60000);
+    const s = Math.round((n % 60000) / 1000);
+    return `${m}m ${s}s`;
+  }
+
+  function openInboxReply(id) {
+    const q = inboxById[id];
+    if (!q) return;
+    inboxReplyCtx = q;
+    document.getElementById('inboxReplyMeta').textContent =
+      `${q.sender_id} · ${formatWait(q.wait_ms)}${q.sla_breached ? ' · SLA LATE' : ''}`;
+    document.getElementById('inboxReplyQuestion').textContent = q.customer_message || '';
+    document.getElementById('inboxReplyText').value = q.bot_draft || '';
+    document.getElementById('inboxReplyTeach').checked = false;
+    const wrap = document.getElementById('inboxReplyThumbWrap');
+    if (q.screenshot_url) {
+      wrap.style.display = 'block';
+      wrap.innerHTML = `<img class="inbox-thumb" style="width:96px;height:96px;" src="/proxy-image?url=${encodeURIComponent(q.screenshot_url)}" alt="screenshot">`;
+    } else {
+      wrap.style.display = 'none';
+      wrap.innerHTML = '';
+    }
+    document.getElementById('overlayInboxReply').classList.add('open');
+  }
+
+  async function sendInboxReply(forceTeach) {
+    if (!inboxReplyCtx) return;
+    const reply = document.getElementById('inboxReplyText').value.trim();
+    if (!reply) {
+      toast('উত্তর লিখুন', 'error');
+      return;
+    }
+    const teach = forceTeach || document.getElementById('inboxReplyTeach').checked;
     try {
       await api('/admin/resolve-query', 'POST', {
-        queryId,
-        senderId,
+        queryId: inboxReplyCtx.id,
+        senderId: inboxReplyCtx.sender_id,
         replyText: reply,
-        isGlobal: false,
+        isGlobal: teach,
+        customerMessage: inboxReplyCtx.customer_message || '',
       });
-      toast('Reply sent!', 'success');
+      closeModal('overlayInboxReply');
+      toast(teach ? 'পাঠানো হয়েছে এবং শেখানো হয়েছে' : 'Reply sent!', 'success');
       loadInbox();
+      loadConversations();
     } catch (err) {
       toast(`Failed: ${err.message}`, 'error');
     }
+  }
+
+  async function loadMetrics() {
+    try {
+      const m = await api('/admin/metrics');
+      const p50 = document.getElementById('statP50');
+      const ss = document.getElementById('statSsMatch');
+      const ho = document.getElementById('statHandoff');
+      if (p50) p50.textContent = m.p50_reply_ms != null ? `${Math.round(m.p50_reply_ms / 100) / 10}s` : '—';
+      if (ss) ss.textContent = m.screenshot_count ? `${m.screenshot_match_rate}%` : '—';
+      if (ho) ho.textContent = m.sample ? `${m.handoff_rate}%` : '—';
+    } catch (_) {}
   }
 
   async function replyToQueryWithPhoto(queryId, senderId) {

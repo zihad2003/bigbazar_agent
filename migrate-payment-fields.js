@@ -19,6 +19,27 @@ const MIGRATIONS = [
   'ALTER TABLE orders ADD COLUMN screenshot_url TEXT',
   'ALTER TABLE orders ADD COLUMN payment_verified_at TEXT',
   'ALTER TABLE orders ADD COLUMN payment_verified_by TEXT',
+  'ALTER TABLE orders ADD COLUMN delivery_charge REAL',
+  'ALTER TABLE orders ADD COLUMN delivery_zone TEXT',
+  'ALTER TABLE orders ADD COLUMN advance_amount REAL',
+  'ALTER TABLE orders ADD COLUMN total_amount REAL',
+  'ALTER TABLE orders ADD COLUMN webhook_mid TEXT',
+  'ALTER TABLE unanswered_queries ADD COLUMN bot_draft TEXT',
+  'ALTER TABLE unanswered_queries ADD COLUMN screenshot_url TEXT',
+  'ALTER TABLE unanswered_queries ADD COLUMN reason TEXT',
+  'ALTER TABLE unanswered_queries ADD COLUMN retrieved_ids TEXT',
+  'ALTER TABLE unanswered_queries ADD COLUMN screenshot_match TEXT',
+  'ALTER TABLE unanswered_queries ADD COLUMN cluster_id TEXT',
+  `CREATE TABLE IF NOT EXISTS agent_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sender_id TEXT,
+    reply_ms INTEGER,
+    screenshot_match TEXT,
+    retrieved_ids TEXT,
+    handoff INTEGER DEFAULT 0,
+    order_id TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
 ];
 
 async function runSQL(sql) {
@@ -43,7 +64,7 @@ async function main() {
   console.log('Running payment-fields migration on D1...');
 
   for (const sql of MIGRATIONS) {
-    const col = sql.match(/ADD COLUMN (\w+)/)?.[1];
+    const col = sql.match(/ADD COLUMN (\w+)/)?.[1] || sql.match(/CREATE TABLE IF NOT EXISTS (\w+)/)?.[1];
     try {
       const { ok, data } = await runSQL(sql);
       if (ok) {

@@ -8,6 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { webhookRouter } from './routes/webhook.js';
 import { adminRouter } from './routes/admin.js';
+import { persistUnansweredClusters } from './services/d1.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/requestLogger.js';
 
@@ -45,7 +46,10 @@ app.get('/proxy-image', async (req, res) => {
         'cdninstagram.com',
         'cloudinary.com',
         'supabase.co',
-        'images.weserv.nl'
+        'fbcdn.net',
+        'fbsbx.com',
+        'facebook.com',
+        'messenger.com',
       ];
       const isAllowed = whitelist.some(domain => host === domain || host.endsWith('.' + domain));
       if (!isAllowed) {
@@ -90,5 +94,13 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🛍️  Big Bazar Agent running on port ${PORT}`));
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+setTimeout(() => {
+  persistUnansweredClusters().catch(err => console.warn('unanswered cluster:', err.message));
+  setInterval(() => {
+    persistUnansweredClusters().catch(err => console.warn('unanswered cluster:', err.message));
+  }, DAY_MS);
+}, 45_000);
 
 export default app;

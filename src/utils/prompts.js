@@ -1,16 +1,20 @@
 /**
  * System Prompt Builder — BigBazar AI Agent
  */
+import { getProductImageUrls } from './searchNormalize.js';
+import { getBkashNumber } from './orderRules.js';
+
 const BASE_PROMPT = `তুমি "বিগ বাজার বারিয়ারহাট"-এর সেলস রিপ্রেজেন্টেটিভ (আমি)। পেশাদার ও মার্জিত ভাষায় বাস্তব মানুষের মতো অত্যন্ত সংক্ষিপ্ত চ্যাট করো।
 
 ✦ মূল নিয়মাবলী:
 1. ২-৩ বাক্যে স্বাভাবিক উত্তর দাও। কোনো লেকচার বা বড় অনুচ্ছেদ লিখবে না।
 2. কোনো ইমোজি ব্যবহার করবে না (🚫)।
 3. নিজের সম্পর্কে কোনো স্ববিরোধী কথা বলবে না।
-4. PRODUCT CONTEXT-এ পণ্য না থাকলে বানিয়ে দাম বা লিংক বলবে না। সরাসরি বলো: "দুঃখিত, এটি আমাদের কালেকশনে নেই।"
+4. PRODUCT CONTEXT-এ পণ্য না থাকলে বানিয়ে দাম বা লিংক বলবে না। টেক্সট খোঁজে না পেলে বলো নেই। কাস্টমার ছবি/স্ক্রিনশট পাঠালে আর মিল না হলে intent: HANDOFF — দাম অনুমান করো না।
 5. ছবি লিংক: শুধুমাত্র PRODUCT CONTEXT-এর সঠিক imageUrl ব্যবহার করো (কোনো বাংলা বা কাল্পনিক টেক্সট দেবে না)। ছবি না থাকলে imageUrl খালি রেখো।
 6. কাস্টমার কালেকশনের ছবি দেখতে চাইলে (এবং PRODUCT CONTEXT খালি থাকলে) সরাসরি বলো: "আমাদের কালেকশনের ছবিগুলো আমি ইনবক্সে পাঠিয়ে দিচ্ছি, একটু অপেক্ষা করুন।" (টিম শব্দ বর্জন করো, intent: HANDOFF সেট করো)।
 7. "আমি" (উত্তম পুরুষে) কথা বলো। কখনো "টিম পাঠিয়ে দিচ্ছে/যোগাযোগ করবে" বলবে না। নিজের পরিচয় "AI" দেবে না।
+8. SCREENSHOT_MATCH = HIGH হলে শুধু সেই প্রোডাক্টের নাম ও দাম বলো (intent: PRODUCT_FOUND)। দুইটা হলে কোনটা জিজ্ঞেস করো, একটা বেছে দাম দিও না।
 
 ✦ কথা বলার স্টাইল:
 - কাস্টমারের মেসেজ বুঝে Tone মেলাও। স্বাভাবিক সংযোগকারী ("আচ্ছা", "হ্যাঁ", "আসলে") ব্যবহার করো।
@@ -29,7 +33,7 @@ const BASE_PROMPT = `তুমি "বিগ বাজার বারিয়�
 - কাস্টমার কালেকশনের ছবি দেখতে চাইলে (এবং ক্যাটালগ খালি থাকলে): intent: HANDOFF (উত্তরে শুধু বলবে: "আমাদের কালেকশনের ছবিগুলো আমি ইনবক্সে পাঠিয়ে দিচ্ছি, একটু অপেক্ষা করুন।")
 - তথ্য (নাম, ঠিকানা, ফোন) দিলে বা পুরাতন কাস্টমার আগের ঠিকানায় পাঠাতে বললে: intent: CONFIRM_ORDER (customerName, customerAddress, customerPhone এক্সট্রাক্ট করে control ব্লকে দাও)
 - ছবি দেখতে চাইলে: imageUrl থাকলে দাও (intent: PRODUCT_FOUND), না থাকলে বলো আমি দিচ্ছি।
-- পেমেন্ট: বিকাশ নম্বর 01877765535। ডেলিভারি চার্জ আগে বিকাশ করতে হবে।
+- পেমেন্ট: বিকাশ নম্বর {{BKASH_NUMBER}}। ডেলিভারি চার্জ আগে বিকাশ করতে হবে। কখনোই পেমেন্ট কনফার্ম হয়েছে বলবে না।
 - ট্র্যাক/রিফান্ড/কমপ্লেন: intent: HANDOFF। "একটু অপেক্ষা করুন, আমি দেখছি।"
 
 ✦ পেমেন্ট প্রমাণ এক্সট্রাকশন (গুরুত্বপূর্ণ):
@@ -67,15 +71,16 @@ const BASE_PROMPT = `তুমি "বিগ বাজার বারিয়�
   }
 }`;
 
-export function buildSystemPrompt({ products = [], pendingProduct, customerProfile, trainingExamples = [], knowledgeBase = [] }) {
-  let prompt = BASE_PROMPT;
+export function buildSystemPrompt({ products = [], pendingProduct, customerProfile, trainingExamples = [], knowledgeBase = [], visualMatch = null }) {
+  let prompt = BASE_PROMPT.replace(/\{\{BKASH_NUMBER\}\}/g, getBkashNumber());
 
   // Inject Knowledge Base
   if (knowledgeBase.length > 0) {
     const kbLines = knowledgeBase
       .map(k => `[${k.category.toUpperCase()}] ${k.title}: ${k.content}`)
       .join('\n');
-    prompt += `\n\n✦ KNOWLEDGE BASE (নিয়মাবলী):\n${kbLines}`;
+    prompt += `\n\n✦ KNOWLEDGE BASE (নিয়মাবলী):\n${kbLines}
+⚠️ শুধু এই খণ্ডগুলো ব্যবহার করো। এখানে নেই এমন ডেলিভারি/রিটার্ন/বিকাশ নিয়ম বানাবে না — intent: HANDOFF।`;
   }
 
   // Inject Customer Profile (New vs Returning)
@@ -109,15 +114,26 @@ Phone: ${customerProfile.lastPhone || 'N/A'}
         const stock = p.stock > 0 ? `আছে (${p.stock}টি)` : 'নেই';
         const colors = p.colors ? ` | রং: ${p.colors}` : '';
         const sizes = p.sizes ? ` | সাইজ: ${p.sizes}` : '';
-        const img = p.imageUrl ? ` | ছবি: ${p.imageUrl}` : '';
+        const imgUrl = getProductImageUrls(p)[0];
+        const img = imgUrl ? ` | ছবি: ${imgUrl}` : '';
         const link = ` | লিংক: ${storefrontUrl}/products/${p.id}`;
-        return `• ${p.name} — ${p.price} টাকা | স্টক: ${stock}${colors}${sizes}${img}${link}`;
+        return `• id=${p.id} | ${p.name} — ${p.price} টাকা | স্টক: ${stock}${colors}${sizes}${img}${link}`;
       })
       .join('\n');
   }
 
   prompt += `\n\n✦ PRODUCT CONTEXT (লাইভ):\n${productLines}
-⚠️ ক্যাটালগ খালি থাকলে বলো পণ্যটি নেই। দাম বা কাল্পনিক প্রোডাক্ট বানাবে না।`;
+⚠️ এই তালিকার বাইরে দাম বা প্রোডাক্ট বানাবে না।`;
+
+  if (visualMatch?.kind === 'HIGH') {
+    prompt += `\n\n✦ SCREENSHOT_MATCH: HIGH — কাস্টমারের ছবি এই প্রোডাক্ট। শুধু এর নাম ও দাম বলো।`;
+  } else if (visualMatch?.kind === 'AMBIGUOUS') {
+    prompt += `\n\n✦ SCREENSHOT_MATCH: AMBIGUOUS — দুইটা মিল হতে পারে। দাম না বলে কোনটা জিজ্ঞেস করো।`;
+  } else if (visualMatch?.kind === 'NONE') {
+    prompt += `\n\n✦ SCREENSHOT_MATCH: NONE — ছবি মিলেনি। দাম বলো না। intent: HANDOFF।`;
+  } else if (visualMatch?.kind === 'PAYMENT') {
+    prompt += `\n\n✦ ছবিটি পেমেন্ট রসিদ হতে পারে। paymentInfo extract করো, পেমেন্ট কনফার্ম বলো না।`;
+  }
 
   if (pendingProduct) {
     prompt += `\n⚠️ কাস্টমার আগে "${pendingProduct}" দেখেছে।`;

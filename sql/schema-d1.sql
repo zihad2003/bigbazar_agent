@@ -36,6 +36,18 @@ CREATE TABLE IF NOT EXISTS orders (
   product_price     REAL NOT NULL,
   variant           TEXT,
   status            TEXT DEFAULT 'pending_payment',
+  payment_method    TEXT,
+  sender_number     TEXT,
+  transaction_id    TEXT,
+  claimed_amount    REAL,
+  screenshot_url    TEXT,
+  payment_verified_at TEXT,
+  payment_verified_by TEXT,
+  delivery_charge   REAL,
+  delivery_zone     TEXT,
+  advance_amount    REAL,
+  total_amount      REAL,
+  webhook_mid       TEXT,
   created_at        TEXT DEFAULT (datetime('now'))
 );
 
@@ -67,10 +79,17 @@ CREATE TABLE IF NOT EXISTS unanswered_queries (
   sender_id         TEXT NOT NULL,
   customer_message  TEXT NOT NULL,
   status            TEXT DEFAULT 'pending', -- pending | resolved
+  bot_draft         TEXT,
+  screenshot_url    TEXT,
+  reason            TEXT,
+  retrieved_ids     TEXT,
+  screenshot_match  TEXT,
+  cluster_id        TEXT,
   created_at        TEXT DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_unanswered_status ON unanswered_queries (status);
+CREATE INDEX IF NOT EXISTS idx_unanswered_cluster ON unanswered_queries (cluster_id);
 
 CREATE TABLE IF NOT EXISTS training_examples (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,4 +110,17 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS agent_events (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  sender_id         TEXT,
+  reply_ms          INTEGER,
+  screenshot_match  TEXT,
+  retrieved_ids     TEXT,
+  handoff           INTEGER DEFAULT 0,
+  order_id          TEXT,
+  created_at        TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_events_created ON agent_events (created_at DESC);
 

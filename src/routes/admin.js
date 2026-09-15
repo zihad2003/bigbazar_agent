@@ -10,9 +10,11 @@
 
 import { Router } from 'express';
 import crypto from 'crypto';
-import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus, saveTrainingExample, getTrainingExamples, deleteTrainingExample, getKnowledgeEntries, saveKnowledgeEntry, updateKnowledgeEntry, deleteKnowledgeEntry, deleteConversation, deleteOrder, updateTrainingExample, createManualOrder, getUnansweredQueries, resolveUnansweredQuery, upsertD1Products, updatePaymentVerification, updateProductImages } from '../services/d1.js';
+import { getConversations, getOrders, updateConversation, getSettingCached, setSettingCached, updateOrderStatus, saveTrainingExample, getTrainingExamples, deleteTrainingExample, getKnowledgeEntries, saveKnowledgeEntry, updateKnowledgeEntry, deleteKnowledgeEntry, deleteConversation, deleteOrder, updateTrainingExample, createManualOrder, getUnansweredQueries, resolveUnansweredQuery, upsertD1Products, updatePaymentVerification, updateProductImages, getAgentMetrics, getUnansweredClusters, persistUnansweredClusters } from '../services/d1.js';
 import { getCachedCatalog, getCachedProductStats, getCacheStatus, triggerRefresh } from '../services/catalogCache.js';
-import { sendMessage } from '../services/messenger.js';
+import { sendMessage, sendImageMessage } from '../services/messenger.js';
+import { getAllProducts as getTiDBProducts } from '../db/tidb.js';
+import { invalidateRagCache } from '../services/ragRetrieve.js';
 
 export const adminRouter = Router();
 
@@ -24,11 +26,19 @@ adminRouter.use((req, res, next) => {
     return res.sendStatus(401);
   }
 
-  const match = token.length === process.env.ADMIN_SECRET.length &&
-    crypto.timingSafeEqual(Buffer.from(token), Buffer.from(process.env.ADMIN_SECRET));
+  const tokenBuf = Buffer.from(token);
+  const secretBuf = Buffer.from(process.env.ADMIN_SECRET);
+
+  const match = tokenBuf.length === secretBuf.length &&
+    crypto.timingSafeEqual(tokenBuf, secretBuf);
 
   if (!match) return res.sendStatus(401);
   next();
+});
+
+// Verification endpoint for dashboard login
+adminRouter.get('/auth/check', (_req, res) => {
+  res.json({ ok: true, message: 'Authenticated successfully' });
 });
 
 // ── Conversations ─────────────────────────────────────────────────────────────
@@ -98,8 +108,35 @@ adminRouter.post('/conversations/:id/reply', async (req, res) => {
 
 adminRouter.get('/unanswered', async (_req, res) => {
   try {
-    const list = await getUnansweredQueries(50);
+    const list = await getUnansweredQueries(80);
     res.json(list);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.get('/unanswered-clusters', async (_req, res) => {
+  try {
+    const clusters = await getUnansweredClusters();
+    res.json(clusters);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.post('/unanswered-clusters/refresh', async (_req, res) => {
+  try {
+    const result = await persistUnansweredClusters();
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.get('/metrics', async (_req, res) => {
+  try {
+    const metrics = await getAgentMetrics();
+    res.json(metrics);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -107,7 +144,7 @@ adminRouter.get('/unanswered', async (_req, res) => {
 
 adminRouter.post('/resolve-query', async (req, res) => {
   try {
-    const { queryId, senderId, replyText, isGlobal, category, title } = req.body;
+    const { queryId, senderId, replyText, isGlobal, category, title, customerMessage } = req.body;
 
     if (!senderId || !replyText) {
       return res.status(400).json({ error: 'senderId and replyText are required' });
@@ -130,15 +167,23 @@ adminRouter.post('/resolve-query', async (req, res) => {
 
     // 4. Active Learning: If global knowledge, save into Knowledge Base / Training Examples
     if (isGlobal) {
+      const q = (customerMessage || '').trim();
       await saveKnowledgeEntry({
         category: category || 'general',
-        title: title || 'Product & Shop Q&A',
-        content: replyText,
+        title: title || (q ? q.slice(0, 80) : 'Product & Shop Q&A'),
+        content: q ? `প্রশ্ন: ${q}\nউত্তর: ${replyText}` : replyText,
         is_active: 1,
         priority: 1,
       });
-
-      console.log(`[Active Learning] Learned new global knowledge: "${title || 'Q&A'}" -> "${replyText}"`);
+      if (q) {
+        await saveTrainingExample({
+          customerMessage: q,
+          wrongBotReply: null,
+          correctReply: replyText,
+        });
+      }
+      invalidateRagCache();
+      console.log(`[Active Learning] Learned: "${q || title || 'Q&A'}" -> "${replyText}"`);
     }
 
     res.json({ ok: true, learnedGlobal: !!isGlobal });
@@ -231,6 +276,7 @@ adminRouter.post('/training', async (req, res) => {
       return res.status(400).json({ error: 'customerMessage and correctReply are required' });
     }
     await saveTrainingExample({ customerMessage, wrongBotReply, correctReply, context });
+    invalidateRagCache();
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -263,6 +309,7 @@ adminRouter.post('/knowledge', async (req, res) => {
       return res.status(400).json({ error: 'category, title, and content are required' });
     }
     await saveKnowledgeEntry({ category, title, content, is_active, priority });
+    invalidateRagCache();
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -273,6 +320,7 @@ adminRouter.put('/knowledge/:id', async (req, res) => {
   try {
     const { category, title, content, is_active, priority } = req.body;
     await updateKnowledgeEntry(req.params.id, { category, title, content, is_active, priority });
+    invalidateRagCache();
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -282,6 +330,7 @@ adminRouter.put('/knowledge/:id', async (req, res) => {
 adminRouter.delete('/knowledge/:id', async (req, res) => {
   try {
     await deleteKnowledgeEntry(req.params.id);
+    invalidateRagCache();
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -432,70 +481,17 @@ adminRouter.put('/products/:id/images', async (req, res) => {
   }
 });
 
-// ── Active Moderator Learning & Unanswered Query Queue ─────────────────────
-
-adminRouter.get('/unanswered', async (_req, res) => {
-  try {
-    const list = await getUnansweredQueries(50);
-    res.json(list);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-adminRouter.post('/resolve-query', async (req, res) => {
-  try {
-    const { queryId, senderId, replyText, isGlobal, category, title } = req.body;
-
-    if (!senderId || !replyText) {
-      return res.status(400).json({ error: 'senderId and replyText are required' });
-    }
-
-    // 1. Send reply to customer via Messenger
-    await sendMessage(senderId, replyText);
-
-    // 2. Unpause AI for that conversation
-    await updateConversation(senderId, {
-      paused_by_ai: false,
-      paused_reason: null,
-      state: 'GREETING',
-    });
-
-    // 3. Mark query as resolved in D1
-    if (queryId) {
-      await resolveUnansweredQuery(queryId);
-    }
-
-    // 4. Active Learning: If global knowledge, save into Knowledge Base / Training Examples
-    if (isGlobal) {
-      await saveKnowledgeEntry({
-        category: category || 'general',
-        title: title || 'Product & Shop Q&A',
-        content: replyText,
-        is_active: 1,
-        priority: 1,
-      });
-
-      console.log(`🧠 [Active Learning] Learned new global knowledge: "${title || 'Q&A'}" -> "${replyText}"`);
-    }
-
-    res.json({ ok: true, learnedGlobal: !!isGlobal });
-  } catch (error) {
-    console.error('Resolve query error:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // ── Catalog Sync: TiDB -> D1 Products Cache ────────────────────────────────
 
 adminRouter.post('/sync-catalog', async (_req, res) => {
   try {
     console.log('🔄 [Catalog Sync] Fetching catalog snapshot from TiDB...');
-    const result = await getAllProducts({ limit: 1000 });
+    const result = await getTiDBProducts({ limit: 2000 });
     const products = result.products || [];
 
     if (products.length > 0) {
       await upsertD1Products(products);
+      await triggerRefresh();
       console.log(`✅ [Catalog Sync] Successfully synced ${products.length} products to D1 products_cache!`);
     }
 
