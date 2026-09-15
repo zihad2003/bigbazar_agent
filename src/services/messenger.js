@@ -91,3 +91,67 @@ function splitMessage(text, maxLen) {
   if (remaining) chunks.push(remaining);
   return chunks;
 }
+
+const REEL_SHARE = /facebook\.com\/reel|fb\.watch|instagram\.com\/reels?|tiktok\.com|vt\.tiktok\.com/i;
+
+/**
+ * Pull image / reel-video / voice / share-link from a Messenger attachments array.
+ * 90% of Big Bazar inbox traffic is a reel screenshot or a forwarded reel clip.
+ */
+export function extractMessengerMedia(attachments = []) {
+  let imageUrl = null;
+  let videoUrl = null;
+  let audioUrl = null;
+  let shareUrl = null;
+
+  for (const a of attachments || []) {
+    const type = String(a.type || '').toLowerCase();
+    const payload = a.payload || {};
+    const url = payload.url || payload.source || null;
+    if (type === 'image' && url && !imageUrl) imageUrl = url;
+    else if (type === 'video' && url && !videoUrl) videoUrl = url;
+    else if (type === 'audio' && url && !audioUrl) audioUrl = url;
+    else if (url && (type === 'share' || type === 'fallback' || type === 'template' || type === 'ig_reel' || type === 'story_mention')) {
+      shareUrl = shareUrl || url;
+    }
+    const nested = payload.generic?.elements?.[0]?.url
+      || payload.elements?.[0]?.url
+      || payload.url;
+    if (!url && nested && type !== 'image' && type !== 'video' && type !== 'audio') {
+      shareUrl = shareUrl || nested;
+    }
+  }
+
+  const visualUrl = imageUrl || videoUrl || null;
+  const isReelShare = !visualUrl && !!(shareUrl && REEL_SHARE.test(shareUrl));
+  return { imageUrl, videoUrl, audioUrl, shareUrl, visualUrl, isReelShare };
+}
+
+/**
+ * Older Facebook inbox turns the bot never stored in D1.
+ * Used so replies can see if this customer already talked to the page.
+ */
+export async function fetchConversationHistory(psid, limit = 15) {
+  if (!PAGE_ACCESS_TOKEN || !psid) return [];
+  try {
+    const convUrl = `https://graph.facebook.com/${FB_API_VERSION}/me/conversations?user_id=${encodeURIComponent(psid)}&fields=id&limit=1&access_token=${PAGE_ACCESS_TOKEN}`;
+    const convRes = await fetch(convUrl);
+    const conv = await convRes.json();
+    const convId = conv?.data?.[0]?.id;
+    if (!convId) return [];
+
+    const msgUrl = `https://graph.facebook.com/${FB_API_VERSION}/${convId}/messages?fields=message,from,created_time&limit=${limit}&access_token=${PAGE_ACCESS_TOKEN}`;
+    const msgRes = await fetch(msgUrl);
+    const msgs = await msgRes.json();
+    const rows = msgs.data || [];
+    // Graph returns newest first
+    return rows.slice().reverse().map((m) => ({
+      role: String(m.from?.id || '') === String(psid) ? 'user' : 'assistant',
+      content: (m.message || '').trim() || '[মিডিয়া]',
+      ts: Date.parse(m.created_time) || Date.now(),
+    })).filter((m) => m.content);
+  } catch (err) {
+    console.warn('⚠️ [Messenger] Prior inbox history unavailable:', err.message);
+    return [];
+  }
+}

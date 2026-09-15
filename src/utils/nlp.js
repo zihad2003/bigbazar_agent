@@ -22,6 +22,21 @@ export function detectHandoffIntent(text) {
   return HANDOFF_KEYWORDS.some(kw => lower.includes(kw));
 }
 
+const GREETING_ONLY = /^(hi+|hello+|hellow|hey+|hy+|hlw+|hlo+|helo+|hola|yo+|gm|slm|salam+|assalamu?\s*alaikum|walaikum\s*assalam|ওয়ালাইকুম(?:\s*সালাম)?|ওয়ালাইকুম(?:\s*সালাম)?|আসসালামু?\s*আলাইকুম|সালাম+|জি+|হ্যালো+|হেলো+|নমস্কার)(?:\s+(?:apu|vai|bhai|আপু|ভাই))?$/i;
+
+export function isGreetingOnly(text) {
+  const t = (text || '').trim().replace(/[.!?।,]+$/g, '').trim();
+  if (!t || t.length > 48) return false;
+  return GREETING_ONLY.test(t.replace(/\s+/g, ' '));
+}
+
+export function greetingReply(text, history = []) {
+  const already = (history || []).some(m => m.role === 'assistant');
+  const salam = /salam|আলাইকুম|সালাম|assalam/i.test(text || '');
+  if (already) return salam ? 'ওয়ালাইকুম সালাম। বলেন।' : 'জি, বলেন।';
+  return salam ? 'ওয়ালাইকুম সালাম। কী লাগবে?' : 'জি, কী লাগবে?';
+}
+
 // ── Product query detection ───────────────────────────────────────────────────
 // HUMAN SALES REP LOGIC:
 // Only query TiDB when customer explicitly asks about a product, price, stock,

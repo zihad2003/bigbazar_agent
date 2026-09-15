@@ -19,9 +19,9 @@ import { retrieveKnowledge, retrieveTraining } from './ragRetrieve.js';
 import { getAIReply } from './ai.js';
 import { searchProducts } from './productSearch.js';
 import { saveOrder, findDuplicateOrder } from './orderService.js';
-import { sendMessage, sendImageMessage, sendTypingIndicator } from './messenger.js';
+import { sendMessage, sendImageMessage, sendTypingIndicator, extractMessengerMedia, fetchConversationHistory } from './messenger.js';
 import { notifyModerator } from './notifier.js';
-import { detectHandoffIntent, isProductQuery } from '../utils/nlp.js';
+import { detectHandoffIntent, isGreetingOnly, greetingReply, isProductQuery } from '../utils/nlp.js';
 import { getProductImageUrls } from '../utils/searchNormalize.js';
 import {
   resolvePhone,
@@ -97,8 +97,12 @@ export async function handleMessage(event, baseUrl = '') {
 
     const messageText = (event.message.text ?? '').trim();
     const attachments = event.message.attachments ?? [];
-    const imageUrl = attachments.find(a => a.type === 'image')?.payload?.url;
-    const audioUrl = attachments.find(a => a.type === 'audio')?.payload?.url;
+    const media = extractMessengerMedia(attachments);
+    const imageUrl = media.imageUrl;
+    const videoUrl = media.videoUrl;
+    const audioUrl = media.audioUrl;
+    const visualUrl = media.visualUrl;
+    const isReelShare = media.isReelShare;
 
     if (audioUrl) {
       console.log(`🎤 [Gemini Audio] Analyzing voice message: ${audioUrl}`);
@@ -106,6 +110,25 @@ export async function handleMessage(event, baseUrl = '') {
 
     // ── 3. Load conversation state ───────────────────────────────────────────────
     const conversation = await getOrCreateConversation(senderId);
+    if ((conversation.message_history || []).length < 2) {
+      const prior = await fetchConversationHistory(senderId, 15);
+      if (prior.length) {
+        const have = new Set((conversation.message_history || []).map(m => `${m.role}:${m.content}`));
+        const current = (messageText || '').trim();
+        let extra = prior.filter((m) => {
+          if (current && m.role === 'user' && m.content === current) return false;
+          return !have.has(`${m.role}:${m.content}`);
+        });
+        if ((visualUrl || isReelShare) && extra.length) {
+          const last = extra[extra.length - 1];
+          if (last.role === 'user' && last.content === '[মিডিয়া]') extra = extra.slice(0, -1);
+        }
+        if (extra.length) {
+          conversation.message_history = [...extra, ...(conversation.message_history || [])].slice(-20);
+          console.log(`📜 [History] Hydrated ${extra.length} prior inbox turns for ${senderId}`);
+        }
+      }
+    }
     const startedAt = Date.now();
     let products = [];
     let visual = null;
@@ -117,7 +140,7 @@ export async function handleMessage(event, baseUrl = '') {
     // ── 5. Handoff detection (fast, no AI needed) ────────────────────────────────
     if (detectHandoffIntent(messageText)) {
       await triggerHandoff(senderId, conversation, 'Customer requested human agent', messageText, {
-        screenshotUrl: imageUrl,
+        screenshotUrl: visualUrl,
         startedAt,
       });
       return;
@@ -155,16 +178,33 @@ export async function handleMessage(event, baseUrl = '') {
       }
     }
 
+    // "hlw" / সালাম should not hit Gemini — it writes a shop-welcome speech.
+    if (
+      needsAI &&
+      !visualUrl &&
+      !audioUrl &&
+      !isReelShare &&
+      isGreetingOnly(messageText) &&
+      conversation.state !== 'ORDER_CONFIRM' &&
+      conversation.state !== 'AWAITING_ORDER_DETAILS'
+    ) {
+      reply = greetingReply(messageText, conversation.message_history);
+      stateUpdate = { state: 'GREETING' };
+      needsAI = false;
+    }
+
     // ── 7. AI path — only runs when needsAI = true ───────────────────────────────
     if (needsAI) {
       const isPaymentStage = conversation.state === 'ORDER_CONFIRM';
 
-      if (imageUrl || audioUrl || isProductQuery(messageText)) {
+      if (visualUrl || audioUrl || isProductQuery(messageText) || isReelShare) {
         try {
-          if (isPaymentStage && imageUrl) {
+          if (isPaymentStage && visualUrl) {
             console.log('💳 [Search] Skipping product visual match — conversation is in payment stage');
+          } else if (isReelShare && !visualUrl) {
+            console.log('🎬 [Search] Reel share has no downloadable clip — ask for screenshot');
           } else {
-            const searchResult = await searchProducts(messageText, imageUrl, audioUrl, conversation.pending_product_name);
+            const searchResult = await searchProducts(messageText, visualUrl, audioUrl, conversation.pending_product_name);
             products = searchResult.products || [];
             visual = searchResult.visual || null;
           }
@@ -173,18 +213,26 @@ export async function handleMessage(event, baseUrl = '') {
         }
       }
 
-      if (visual?.kind === 'NONE' && visual.parse?.imageKind === 'product') {
+      let skipAi = false;
+      let sentProductImage = false;
+
+      if (isReelShare && !visualUrl) {
+        reply = 'রিলটা এখান থেকে খুলতে পারছি না। একটা স্ক্রিনশট পাঠায়েন, দাম বলে দিব।';
+        skipAi = true;
+      } else if (videoUrl && !imageUrl && !visual?.parse) {
+        reply = 'রিলটা পরিষ্কার দেখতে পাইনি। একটা স্ক্রিনশট পাঠায়েন, দাম বলে দিব।';
+        skipAi = true;
+      }
+
+      if (!skipAi && visual?.kind === 'NONE' && visual.parse?.imageKind === 'product') {
         await triggerHandoff(senderId, conversation, 'Screenshot did not match catalog', messageText, {
-          screenshotUrl: imageUrl,
+          screenshotUrl: visualUrl,
           screenshotMatch: 'NONE',
           retrievedIds: '',
           startedAt,
         });
         return;
       }
-
-      let skipAi = false;
-      let sentProductImage = false;
 
       if (visual?.kind === 'AMBIGUOUS' && products.length >= 2) {
         for (const p of products.slice(0, 2)) {
@@ -259,7 +307,7 @@ export async function handleMessage(event, baseUrl = '') {
         state: conversation.state,
         history: historySlice,
         products,
-        imageUrl,
+        imageUrl: visualUrl,
         audioUrl,
         pendingProduct: conversation.pending_product_name,
         customerProfile,
@@ -272,7 +320,7 @@ export async function handleMessage(event, baseUrl = '') {
       const aiResult = await getAIReply(
         systemPrompt,
         messageText,
-        imageUrl,
+        visualUrl,
         historySlice,
         audioUrl
       );
@@ -416,7 +464,7 @@ export async function handleMessage(event, baseUrl = '') {
         }
       } else if (aiResult.intent === 'HANDOFF') {
         await triggerHandoff(senderId, conversation, 'AI could not resolve query', messageText, {
-          screenshotUrl: imageUrl,
+          screenshotUrl: visualUrl,
           botDraft: aiResult.reply,
           screenshotMatch: visual?.kind || null,
           retrievedIds: (products || []).map(p => p.id).filter(Boolean).join(',') || null,
@@ -434,7 +482,7 @@ export async function handleMessage(event, baseUrl = '') {
             sender_number: aiResult.paymentInfo.senderNumber,
             transaction_id: aiResult.paymentInfo.transactionId,
             claimed_amount: aiResult.paymentInfo.claimedAmount,
-            screenshot_url: imageUrl || null,
+            screenshot_url: visualUrl || null,
           });
           console.log(`💳 [Payment Claim] Order #${conversation.last_order_id} updated with payment claim. Status → pending_verification`);
 
@@ -444,7 +492,7 @@ export async function handleMessage(event, baseUrl = '') {
             senderId,
             orderId: conversation.last_order_id,
             paymentInfo: aiResult.paymentInfo,
-            screenshotUrl: imageUrl || null,
+            screenshotUrl: visualUrl || null,
             lastMessage: messageText,
           });
 
@@ -474,7 +522,8 @@ export async function handleMessage(event, baseUrl = '') {
       console.warn(`⚠️ Empty reply skipped for PSID ${senderId}`);
     }
 
-    const userEntry = messageText || (imageUrl ? '[ছবি পাঠিয়েছে]' : audioUrl ? '[ভয়েস মেসেজ পাঠিয়েছে]' : null);
+    const userEntry = messageText
+      || (imageUrl ? '[ছবি পাঠিয়েছে]' : videoUrl ? '[রিল/ভিডিও পাঠিয়েছে]' : isReelShare ? '[রিল শেয়ার করেছে]' : audioUrl ? '[ভয়েস মেসেজ পাঠিয়েছে]' : null);
 
     const newHistory = [
       ...(conversation.message_history ?? []).slice(-18),

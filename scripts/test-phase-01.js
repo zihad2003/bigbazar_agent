@@ -12,6 +12,8 @@ import {
   getProductImageUrls,
   isGenericProductFollowup,
 } from '../src/utils/searchNormalize.js';
+import { isGreetingOnly, greetingReply } from '../src/utils/nlp.js';
+import { extractMessengerMedia } from '../src/services/messenger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -95,6 +97,28 @@ assert(handler.includes("visual?.kind === 'NONE'"), 'handler handoff on unmatche
 assert(handler.includes("visual?.kind === 'HIGH'"), 'handler grounds HIGH match from DB');
 assert(prompts.includes('SCREENSHOT_MATCH'), 'prompt includes screenshot match block');
 assert(handler.includes('skipVisual') || handler.includes('isPaymentStage'), 'payment-stage skips product visual match');
+
+console.log('\n== Greeting short-circuit ==');
+assert(isGreetingOnly('hlw'), 'hlw is greeting-only');
+assert(isGreetingOnly('hi'), 'hi is greeting-only');
+assert(isGreetingOnly('hello'), 'hello is greeting-only');
+assert(isGreetingOnly('আসসালামু আলাইকুম'), 'salam is greeting-only');
+assert(!isGreetingOnly('hlw dam koto'), 'greeting+product is not greeting-only');
+assert(greetingReply('hlw', []) === 'জি, কী লাগবে?', 'first hlw is one short line');
+assert(greetingReply('hlw', [{ role: 'assistant', content: 'জি' }]) === 'জি, বলেন।', 'repeat hlw stays short');
+assert(handler.includes('isGreetingOnly'), 'handler skips AI on greetings');
+assert(!prompts.includes('নতুন গ্রাহককে স্বাগত জানাও'), 'prompt does not force welcome speech');
+
+console.log('\n== Reel / screenshot media ==');
+const imgOnly = extractMessengerMedia([{ type: 'image', payload: { url: 'https://cdn.example/a.jpg' } }]);
+assert(imgOnly.visualUrl === 'https://cdn.example/a.jpg', 'image attachment is visual');
+const reelVid = extractMessengerMedia([{ type: 'video', payload: { url: 'https://cdn.fbsbx.com/reel.mp4' } }]);
+assert(reelVid.videoUrl && reelVid.visualUrl === reelVid.videoUrl, 'reel video is visual');
+const share = extractMessengerMedia([{ type: 'fallback', payload: { url: 'https://www.facebook.com/reel/123' } }]);
+assert(share.isReelShare && !share.visualUrl, 'facebook reel share without clip asks for screenshot');
+assert(handler.includes('extractMessengerMedia'), 'handler reads video/share attachments');
+assert(handler.includes('fetchConversationHistory'), 'handler loads prior inbox messages');
+assert(prompts.includes('৯০% কাস্টমার রিল'), 'prompt: price first, order form later');
 
 console.log('\n== Result ==');
 if (failed) {

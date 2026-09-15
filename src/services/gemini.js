@@ -174,19 +174,38 @@ async function callGemini(payload, modelName = activePrimary) {
 }
 
 /**
- * Fetch helper for media (image or audio) and return as inline base64 object for Gemini
+ * Fetch helper for media (image, audio, or short reel/video) as Gemini inline data.
  */
-export async function fetchMediaAsInlineData(url) {
+const MAX_INLINE_BYTES = 18 * 1024 * 1024;
+
+function guessMime(contentType, url, hint) {
+  if (hint && /^(image|audio|video)\//.test(hint)) return hint.split(';')[0].trim();
+  let mime = (contentType || '').split(';')[0].trim().toLowerCase();
+  if (/^(image|audio|video)\//.test(mime)) return mime;
+  const u = (url || '').toLowerCase();
+  if (/\.mp4(\?|$)/.test(u) || u.includes('/video')) return 'video/mp4';
+  if (/\.(m4a|aac)(\?|$)/.test(u)) return 'audio/mp4';
+  if (/\.(png)(\?|$)/.test(u)) return 'image/png';
+  if (/\.(webp)(\?|$)/.test(u)) return 'image/webp';
+  return 'image/jpeg';
+}
+
+export async function fetchMediaAsInlineData(url, mimeHint) {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(20000),
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+    });
     if (!res.ok) return null;
     const arrayBuffer = await res.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    let mimeType = res.headers.get('content-type') || 'application/octet-stream';
-    if (mimeType.includes(';')) mimeType = mimeType.split(';')[0].trim();
-    if (!mimeType.startsWith('image/') && !mimeType.startsWith('audio/')) {
-      mimeType = 'image/jpeg';
+    if (arrayBuffer.byteLength > MAX_INLINE_BYTES) {
+      console.warn(`⚠️ [Gemini] Media too large (${arrayBuffer.byteLength} bytes), skip inline`);
+      return null;
     }
+    const buffer = Buffer.from(arrayBuffer);
+    const mimeType = guessMime(res.headers.get('content-type'), url, mimeHint);
     return {
       inlineData: {
         mimeType,
@@ -272,9 +291,9 @@ export async function parseScreenshot(imageUrl) {
       parts: [
         imageData,
         {
-          text: `This is a customer Messenger image. It may be a TikTok, Instagram, Facebook, or Reels screenshot with UI chrome, captions, watermarks, or a model wearing clothes — or a bKash/Nagad payment receipt, or unrelated.
+          text: `This is a customer Messenger photo or short reel/video. It may be a TikTok, Instagram, Facebook Reels screenshot or clip with UI chrome, captions, watermarks, or a model wearing clothes — or a bKash/Nagad payment receipt, or unrelated.
 
-Ignore like-bars, captions, profile UI. Focus on the garment if present.
+Ignore like-bars, captions, profile UI, play buttons. Focus on the garment if present.
 If it is a payment receipt/screenshot, set imageKind=payment and extract method/number/trx/amount.
 Return JSON only.`,
         },
@@ -439,7 +458,7 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [],
     const imageData = await fetchMediaAsInlineData(imageUrl);
     if (imageData) {
       currentUserParts.push(imageData);
-      currentUserParts.push({ text: `[কাস্টমার একটি ছবি পাঠিয়েছেন: ${imageUrl}]` });
+      currentUserParts.push({ text: `[কাস্টমার একটি ছবি বা রিল পাঠিয়েছেন]` });
     }
   }
 

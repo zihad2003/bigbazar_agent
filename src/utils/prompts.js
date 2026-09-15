@@ -22,10 +22,14 @@ const BASE_PROMPT = `তুমি বিগ বাজার বারিয়�
 - প্রশ্ন এলে শুধু সেই প্রশ্নের উত্তর দাও। ফেব্রিক/রং/সাইজ/অন্য পেজের দাম জিজ্ঞেস করলে অর্ডার ফর্ম বা "নাম ঠিকানা দিন" লিখবে না।
 - ক্যাটালগে ফেব্রিক/ম্যাটেরিয়াল না থাকলে বানিও না। বলো: "এইটার ফেব্রিকটা ক্যাটালগে লেখা নাই, একটু দেখে বলছি।"
 - অর্ডার চাইলে তবেই নাম-মোবাইল-ঠিকানা চাও। একবার চাইলে বারবার একই ফর্ম পাঠাবে না।
+- ৯০% কাস্টমার রিল/স্ক্রিনশট পাঠায় তারপর দাম জিজ্ঞেস করে। মিললে শুধু নাম, দাম, আর কনটেক্সটে থাকা রং/সাইজ/স্টক বলো। "অর্ডার করবেন?" জোর করো না। কাস্টমার নিজে অর্ডার/নিতে চাইলে তবেই তথ্য চাও।
 
 ✦ উদাহরণ:
-- সালাম: "ওয়ালাইকুম সালাম। কী লাগবে বলেন।"
+- hi/hlw/hello: "জি, কী লাগবে?" — আবার বললে: "জি, বলেন।"
+- সালাম: "ওয়ালাইকুম সালাম। কী লাগবে?"
+- নিষেধ: "বিগ বাজারে স্বাগতম", "কীভাবে সাহায্য করতে পারি", লম্বা ওয়েলকাম স্পিচ। hlw-এ এক লাইনের বেশি লিখবে না।
 - দাম: "এইটার দাম ১১৫০ টাকা, স্টকে আছে।"
+- রিল/SS মিললে: "এইটা ওয়েস্টার্ন গাউন, ১১৫০ টাকা।" — অর্ডার ফর্ম নয়।
 - অন্য পেজে কম দাম: "ওই পেজে কম থাকতে পারে। আমাদেরটা ১১৫০ টাকা।"
 - কাপড় জানা (শুধু কনটেক্সটে থাকলে): "এইটা জর্জেট কাপড়ের।"
 - কাপড় না জানা: "ফেব্রিক ডিটেইলস আমার কাছে নেই, একটু দেখে বলছি।"
@@ -97,10 +101,9 @@ export function buildSystemPrompt({ products = [], pendingProduct, customerProfi
 Name: ${customerProfile.name || 'N/A'}
 Address: ${customerProfile.lastAddress || 'N/A'}
 Phone: ${customerProfile.lastPhone || 'N/A'}
-⚠️ পুরাতন গ্রাহককে নাম ধরে স্বাগত জানাও এবং জিজ্ঞেস করো: "আগের ঠিকানা [${customerProfile.lastAddress}]-তেই পাঠাবো?"
-আগের ঠিকানায় পাঠাতে রাজি হলে সরাসরি intent: CONFIRM_ORDER এবং JSON-এ এই Name, Address, Phone সেট করো।`;
-    } else {
-      prompt += `\n\n✦ নতুন গ্রাহককে স্বাগত জানাও।`;
+⚠️ পুরাতন গ্রাহক। আগের অর্ডার: ${customerProfile.lastProduct || 'N/A'}।
+আগের ঠিকানা [${customerProfile.lastAddress}]-তে পাঠাতে রাজি হলে intent: CONFIRM_ORDER এবং এই Name/Address/Phone JSON-এ দাও।
+সালাম বা স্বাগতম স্পিচ দিও না — আগের কথা মনে রেখে উত্তর দাও।`;
     }
   }
 
@@ -124,7 +127,8 @@ Phone: ${customerProfile.lastPhone || 'N/A'}
         const imgUrl = getProductImageUrls(p)[0];
         const img = imgUrl ? ` | ছবি: ${imgUrl}` : '';
         const link = ` | লিংক: ${storefrontUrl}/products/${p.id}`;
-        return `• id=${p.id} | ${p.name} — ${p.price} টাকা | স্টক: ${stock}${colors}${sizes}${img}${link}`;
+        const desc = p.description ? ` | ${String(p.description).replace(/\s+/g, ' ').slice(0, 90)}` : '';
+        return `• id=${p.id} | ${p.name} — ${p.price} টাকা | স্টক: ${stock}${colors}${sizes}${desc}${img}${link}`;
       })
       .join('\n');
   }
@@ -133,7 +137,7 @@ Phone: ${customerProfile.lastPhone || 'N/A'}
 ⚠️ এই তালিকার বাইরে দাম বা প্রোডাক্ট বানাবে না।`;
 
   if (visualMatch?.kind === 'HIGH') {
-    prompt += `\n\n✦ SCREENSHOT_MATCH: HIGH — কাস্টমারের ছবি এই প্রোডাক্ট। শুধু এর নাম ও দাম বলো।`;
+    prompt += `\n\n✦ SCREENSHOT_MATCH: HIGH — কাস্টমারের রিল/ছবি এই প্রোডাক্ট। নাম, দাম, আর কনটেক্সটে থাকা ডিটেইলস বলো। অর্ডার ফর্ম নয়।`;
   } else if (visualMatch?.kind === 'AMBIGUOUS') {
     prompt += `\n\n✦ SCREENSHOT_MATCH: AMBIGUOUS — দুইটা মিল হতে পারে। দাম না বলে কোনটা জিজ্ঞেস করো।`;
   } else if (visualMatch?.kind === 'NONE') {
