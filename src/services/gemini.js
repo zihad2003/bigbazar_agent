@@ -511,6 +511,10 @@ export async function getAIReply(systemPrompt, userText, imageUrl, history = [],
   if (!rawText.trim()) {
     const finishReason = response.candidates?.[0]?.finishReason || 'UNKNOWN';
     console.warn(`⚠️ [Gemini API] Returned empty response. finishReason: ${finishReason}`);
+    if (imageUrl || audioUrl) {
+      console.warn('⚠️ [Gemini API] Empty with media — retrying text-only');
+      return getAIReplyTextOnly(systemPrompt, userText, history);
+    }
     return {
       reply: 'দুঃখিত, একটু কারিগরি সমস্যা হচ্ছে। দয়া করে আবার মেসেজ দিন।',
       intent: 'NONE',

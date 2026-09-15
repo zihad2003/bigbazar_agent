@@ -17,7 +17,7 @@ import {
   isDuplicateOrder,
   DUPLICATE_WINDOW_MS,
 } from '../src/utils/orderRules.js';
-import { extractOrderField } from '../src/utils/nlp.js';
+import { extractOrderField, extractOrderDetails, extractPaymentRef, isWantThisProduct, isPaymentProof } from '../src/utils/nlp.js';
 import { buildSystemPrompt } from '../src/utils/prompts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -72,6 +72,31 @@ const ok = validateOrderFields({
   productPrice: 1420,
 });
 assert(ok.ok && ok.phone === '01712345678', 'valid order fields pass');
+
+const quoted = extractOrderDetails(
+  'অর্ডার করতে নাম, মোবাইল আর ঠিকানা একসাথে পাঠায়েন:\nনাম:zihaf\nমো01857045449\nঠিকানা:Bangladesh\nমীরসরাই ফ্রি, চট্টগ্রাম ১০০, দেশে ১৫০ টাকা।'
+);
+assert(quoted.name === 'zihaf', 'quoted Facebook form name');
+assert(quoted.phone === '01857045449', 'quoted Facebook form phone');
+assert(quoted.address === 'Bangladesh', 'quoted Facebook form address');
+
+const oneLine = extractOrderDetails('নাম:zihad মো01857045449 ঠিকানা:Bangladesh');
+assert(oneLine.name === 'zihad' && oneLine.phone === '01857045449' && oneLine.address === 'Bangladesh', 'one-line filled form');
+
+assert(isWantThisProduct('hea den to'), 'hea den to is buy intent');
+assert(isWantThisProduct('kibabe order korbo'), 'kibabe order is buy intent');
+assert(!isWantThisProduct('নাম:zihad মো01857045449 ঠিকানা:Bangladesh'), 'filled form is not buy-intent short-circuit');
+assert(isPaymentProof('last number dile hobe'), 'last number is payment proof');
+assert(extractPaymentRef('Transection id:hjs129ui') === 'hjs129ui', 'transection id extracted');
+
+const quotedOk = validateOrderFields({
+  name: quoted.name,
+  address: quoted.address,
+  phone: quoted.phone,
+  productName: 'three piece',
+  productPrice: 1450,
+});
+assert(quotedOk.ok, 'quoted form fields pass validation');
 
 const noProduct = validateOrderFields({
   name: 'রহিম',
@@ -162,6 +187,8 @@ const migrate = read('migrate-payment-fields.js');
 const service = read('src/services/orderService.js');
 
 assert(handler.includes('resolvePhone') && handler.includes('validateOrderFields'), 'handler validates name/phone/address');
+assert(handler.includes('extractOrderDetails') && handler.includes('completeOrderIfPossible'), 'handler merges quoted form into confirm');
+assert(handler.includes('isWantThisProduct') && handler.includes('isPaymentProof'), 'handler has want-this and payment short-circuits');
 assert(handler.includes('findDuplicateOrder') && handler.includes('webhook_mid'), 'handler dup-check + webhook_mid');
 assert(handler.includes('orderConfirmReply') && handler.includes('orderFormReply'), 'handler uses orderRules copy');
 assert(!handler.includes('01877765535'), 'handler has no hardcoded bKash');

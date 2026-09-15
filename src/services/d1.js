@@ -82,6 +82,8 @@ async function ensureAgentSchema() {
   await tryAddColumn('orders', 'advance_amount', 'REAL');
   await tryAddColumn('orders', 'total_amount', 'REAL');
   await tryAddColumn('orders', 'webhook_mid', 'TEXT');
+  await tryAddColumn('conversations', 'order_phone', 'TEXT');
+  await tryAddColumn('conversations', 'last_order_id', 'TEXT');
   await executeQuery(`
     CREATE TABLE IF NOT EXISTS agent_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

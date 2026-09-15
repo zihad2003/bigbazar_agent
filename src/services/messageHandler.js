@@ -22,7 +22,7 @@ import { getCachedCatalog } from './catalogCache.js';
 import { saveOrder, findDuplicateOrder } from './orderService.js';
 import { sendMessage, sendImageMessage, sendTypingIndicator, extractMessengerMedia, fetchConversationHistory } from './messenger.js';
 import { notifyModerator } from './notifier.js';
-import { detectHandoffIntent, isGreetingOnly, greetingReply, isProductQuery, isPhotoRequest } from '../utils/nlp.js';
+import { detectHandoffIntent, isGreetingOnly, greetingReply, isProductQuery, isPhotoRequest, isWantThisProduct, isPaymentProof, extractPaymentRef, extractOrderDetails } from '../utils/nlp.js';
 import { getProductImageUrls } from '../utils/searchNormalize.js';
 import {
   resolvePhone,
@@ -105,6 +105,190 @@ async function sendProductPhotos(senderId, list, baseUrl, max = 4) {
     }
   }
   return sent;
+}
+
+function looksLikeOrderDetails(text, parsed) {
+  if (parsed?.phone && (parsed.name || parsed.address)) return true;
+  if (!text) return false;
+  return /নাম\s*[:\-=]\s*\S+/i.test(text) && /(?:মোবাইল|মো|phone)\s*[:\-=]?\s*\S+/i.test(text);
+}
+
+async function completeOrderIfPossible({
+  senderId,
+  conversation,
+  messageText,
+  parsed,
+  aiResult,
+  mid,
+}) {
+  const customerName = (parsed?.name || aiResult?.customerName || conversation.order_name || '').trim();
+  const customerAddress = (parsed?.address || aiResult?.customerAddress || conversation.order_address || '').trim();
+  const customerPhone = resolvePhone(
+    parsed?.phone || aiResult?.customerPhone,
+    conversation.order_phone,
+    messageText
+  );
+
+  const finalProductName = conversation.pending_product_name || aiResult?.productName;
+  const finalProductPrice = Number(conversation.pending_product_price || aiResult?.productPrice);
+  const finalVariant = conversation.pending_variant || aiResult?.variant || null;
+
+  const checked = validateOrderFields({
+    name: customerName,
+    address: customerAddress,
+    phone: customerPhone,
+    productName: finalProductName,
+    productPrice: finalProductPrice,
+  });
+
+  if (checked.errors.includes('product') || checked.errors.includes('price')) {
+    return {
+      reply: 'আপনি কোন প্রোডাক্টটি অর্ডার করতে চাচ্ছেন একটু বলবেন? সঠিক দাম মিলিয়ে তারপর কনফার্ম করব।',
+      stateUpdate: {
+        state: 'AWAITING_ORDER_DETAILS',
+        order_name: customerName || null,
+        order_address: customerAddress || null,
+        order_phone: customerPhone || null,
+      },
+      lastOrderId: null,
+      completed: false,
+    };
+  }
+
+  if (!checked.ok) {
+    return {
+      reply: missingFieldsReply(checked.errors),
+      stateUpdate: {
+        state: 'AWAITING_ORDER_DETAILS',
+        order_name: checked.name || customerName || null,
+        order_address: checked.address || customerAddress || null,
+        order_phone: customerPhone || conversation.order_phone || null,
+      },
+      lastOrderId: null,
+      completed: false,
+    };
+  }
+
+  const dup = await findDuplicateOrder(senderId, finalProductName);
+  if (dup) {
+    return {
+      reply: duplicateOrderReply(dup.id),
+      stateUpdate: {
+        state: 'ORDER_CONFIRM',
+        last_order_id: dup.id,
+        order_name: checked.name,
+        order_address: checked.address,
+        order_phone: checked.phone,
+        pending_product_name: finalProductName,
+        pending_product_price: checked.productPrice,
+        pending_variant: finalVariant,
+      },
+      lastOrderId: dup.id,
+      completed: true,
+    };
+  }
+
+  const delivery = calculateDelivery(checked.address);
+  const advance = calculateAdvance(checked.productPrice, delivery.charge);
+  const total = checked.productPrice + delivery.charge;
+
+  const order = await saveOrder({
+    sender_id: senderId,
+    name: checked.name,
+    address: checked.address,
+    phone: checked.phone,
+    product_name: finalProductName,
+    product_price: checked.productPrice,
+    variant: finalVariant,
+    delivery_charge: delivery.charge,
+    delivery_zone: delivery.zone,
+    advance_amount: advance.amount,
+    total_amount: total,
+    webhook_mid: mid || null,
+  });
+
+  await notifyModerator({
+    type: 'NEW_ORDER',
+    order: {
+      id: order.id,
+      name: checked.name,
+      product: finalProductName,
+      total,
+    },
+    senderId,
+  });
+
+  return {
+    reply: orderConfirmReply({
+      name: checked.name,
+      product: finalProductName,
+      variant: finalVariant,
+      address: checked.address,
+      phone: checked.phone,
+      productPrice: checked.productPrice,
+      delivery,
+      advance,
+      total,
+    }),
+    stateUpdate: {
+      state: 'ORDER_CONFIRM',
+      order_name: checked.name,
+      order_address: checked.address,
+      order_phone: checked.phone,
+      pending_product_name: finalProductName,
+      pending_product_price: checked.productPrice,
+      pending_variant: finalVariant,
+      last_order_id: order.id,
+    },
+    lastOrderId: order.id,
+    completed: true,
+  };
+}
+
+async function capturePaymentClaim({ senderId, conversation, messageText, visualUrl, aiResult }) {
+  const ref = extractPaymentRef(messageText) || aiResult?.paymentInfo?.transactionId || null;
+  const orderId = conversation.last_order_id;
+  if (!orderId) {
+    return {
+      reply: 'বিকাশে পাঠিয়ে লাস্ট ৪ ডিজিট বা ট্রানজেকশন আইডি দিন।',
+      stateUpdate: {},
+    };
+  }
+  if (!ref && !visualUrl && !aiResult?.paymentInfo) {
+    return {
+      reply: 'বিকাশে পাঠিয়ে লাস্ট ৪ ডিজিট বা ট্রানজেকশন আইডি দিন।',
+      stateUpdate: {},
+    };
+  }
+
+  await updateOrderPaymentClaim(orderId, {
+    payment_method: aiResult?.paymentInfo?.paymentMethod || 'bkash',
+    sender_number: aiResult?.paymentInfo?.senderNumber || null,
+    transaction_id: ref,
+    claimed_amount: aiResult?.paymentInfo?.claimedAmount || null,
+    screenshot_url: visualUrl || null,
+  });
+  await notifyModerator({
+    type: 'PAYMENT_CLAIMED',
+    senderId,
+    orderId,
+    paymentInfo: aiResult?.paymentInfo || { transactionId: ref, paymentMethod: 'bkash' },
+    screenshotUrl: visualUrl || null,
+    lastMessage: messageText,
+  });
+
+  return {
+    reply: 'ট্রানজেকশন তথ্য পেয়েছি। পেমেন্ট যাচাই হলে জানানো হবে।',
+    stateUpdate: {
+      state: 'GREETING',
+      pending_product_name: null,
+      pending_product_price: null,
+      pending_variant: null,
+      order_name: null,
+      order_address: null,
+      order_phone: null,
+    },
+  };
 }
 
 export async function handleMessage(event, baseUrl = '') {
@@ -303,13 +487,18 @@ export async function handleMessage(event, baseUrl = '') {
       }
 
       if (!skipAi && visual?.kind === 'NONE' && visual.parse?.imageKind === 'product') {
-        await triggerHandoff(senderId, conversation, 'Screenshot did not match catalog', messageText, {
-          screenshotUrl: visualUrl,
-          screenshotMatch: 'NONE',
-          retrievedIds: '',
-          startedAt,
-        });
-        return;
+        if (conversation.pending_product_name) {
+          reply = `এই ছবিটা মিলাতে পারিনি। ${conversation.pending_product_name} টাই নেবেন?`;
+          skipAi = true;
+        } else {
+          await triggerHandoff(senderId, conversation, 'Screenshot did not match catalog', messageText, {
+            screenshotUrl: visualUrl,
+            screenshotMatch: 'NONE',
+            retrievedIds: '',
+            startedAt,
+          });
+          return;
+        }
       }
 
       if (visual?.kind === 'AMBIGUOUS' && products.length >= 2) {
@@ -341,6 +530,10 @@ export async function handleMessage(event, baseUrl = '') {
             console.error('Failed to send matched product image:', e.message);
           }
         }
+        if (!isPaymentStage) {
+          reply = `${products[0].name}, ${products[0].price} টাকা।`;
+          skipAi = true;
+        }
       }
 
       if (!skipAi && !visualUrl && isPhotoRequest(messageText)) {
@@ -368,6 +561,64 @@ export async function handleMessage(event, baseUrl = '') {
             : 'কিছু কালেকশন দিলাম। কোনটা পছন্দ হলে নাম বা নম্বর বলে দিয়েন।';
         } else {
           reply = 'এই মুহূর্তে কালেকশনের ছবি পাঠাতে পারছি না। রিল বা স্ক্রিনশট পাঠায়েন, মিলিয়ে দাম বলে দিব।';
+        }
+        skipAi = true;
+      }
+
+      if (
+        !skipAi
+        && !visualUrl
+        && conversation.pending_product_name
+        && isWantThisProduct(messageText)
+        && !extractOrderDetails(messageText).phone
+      ) {
+        const alreadyCollecting = conversation.state === 'AWAITING_ORDER_DETAILS';
+        if (conversation.state === 'ORDER_CONFIRM') {
+          reply = 'অর্ডারটা নেওয়া আছে। বিকাশে টাকা পাঠিয়ে ট্রানজেকশন আইডি দিন।';
+        } else {
+          stateUpdate = {
+            state: 'AWAITING_ORDER_DETAILS',
+            pending_product_name: conversation.pending_product_name,
+            pending_product_price: conversation.pending_product_price,
+            pending_variant: conversation.pending_variant,
+          };
+          reply = alreadyCollecting
+            ? 'নাম, মোবাইল আর সম্পূর্ণ ঠিকানা একসাথে পাঠায়েন।'
+            : orderFormReply();
+        }
+        skipAi = true;
+      }
+
+      if (
+        !skipAi
+        && visualUrl
+        && conversation.pending_product_name
+        && !visual?.kind
+        && !isPaymentStage
+      ) {
+        reply = `${conversation.pending_product_name}, ${conversation.pending_product_price} টাকা। এইটাই নেবেন?`;
+        skipAi = true;
+      }
+
+      const inPayment = conversation.state === 'ORDER_CONFIRM' || !!conversation.last_order_id;
+      if (
+        !skipAi
+        && inPayment
+        && (isPaymentProof(messageText) || extractPaymentRef(messageText) || (visualUrl && isPaymentStage))
+      ) {
+        try {
+          const claimed = await capturePaymentClaim({
+            senderId,
+            conversation,
+            messageText,
+            visualUrl,
+            aiResult: null,
+          });
+          reply = claimed.reply;
+          stateUpdate = { ...stateUpdate, ...claimed.stateUpdate };
+        } catch (err) {
+          console.error('Failed to update payment claim:', err.message);
+          reply = 'পেমেন্ট তথ্য নিতে সমস্যা হচ্ছে। আবার ট্রানজেকশন আইডি পাঠায়েন।';
         }
         skipAi = true;
       }
@@ -434,8 +685,43 @@ export async function handleMessage(event, baseUrl = '') {
 
       reply = aiResult.reply;
 
-      // Act on AI intent flags
-      if (aiResult.intent === 'PRODUCT_FOUND' && aiResult.productName) {
+      const parsed = extractOrderDetails(messageText);
+      const collecting = conversation.state === 'AWAITING_ORDER_DETAILS' || conversation.state === 'ORDER_CONFIRM';
+      const hasDetails = looksLikeOrderDetails(messageText, parsed);
+      const paymentNow = conversation.state === 'ORDER_CONFIRM' || !!conversation.last_order_id;
+
+      if (paymentNow && (aiResult.paymentInfo || isPaymentProof(messageText) || extractPaymentRef(messageText))) {
+        try {
+          const claimed = await capturePaymentClaim({
+            senderId,
+            conversation,
+            messageText,
+            visualUrl,
+            aiResult,
+          });
+          reply = claimed.reply;
+          stateUpdate = { ...stateUpdate, ...claimed.stateUpdate };
+        } catch (err) {
+          console.error('Failed to update payment claim:', err.message);
+          reply = 'পেমেন্ট তথ্য নিতে সমস্যা হচ্ছে। আবার ট্রানজেকশন আইডি পাঠায়েন।';
+        }
+      } else if (
+        (aiResult.intent === 'CONFIRM_ORDER' || hasDetails || (collecting && (parsed.name || parsed.phone || parsed.address)))
+        && (conversation.pending_product_name || aiResult.productName)
+        && !paymentNow
+      ) {
+        const result = await completeOrderIfPossible({
+          senderId,
+          conversation,
+          messageText,
+          parsed,
+          aiResult,
+          mid,
+        });
+        reply = result.reply;
+        stateUpdate = { ...stateUpdate, ...result.stateUpdate };
+        lastOrderId = result.lastOrderId;
+      } else if (aiResult.intent === 'PRODUCT_FOUND' && aiResult.productName) {
         const grounded = visual?.kind === 'HIGH' && products[0] ? products[0] : null;
         stateUpdate = {
           pending_product_name: grounded?.name || aiResult.productName,
@@ -451,122 +737,26 @@ export async function handleMessage(event, baseUrl = '') {
           }
         }
       } else if (aiResult.intent === 'START_ORDER') {
-        const alreadyCollecting = conversation.state === 'AWAITING_ORDER_DETAILS';
-        stateUpdate = {
-          state: 'AWAITING_ORDER_DETAILS',
-          pending_product_name: aiResult.productName || conversation.pending_product_name || null,
-          pending_product_price: aiResult.productPrice || conversation.pending_product_price || null,
-          pending_variant: aiResult.variant || conversation.pending_variant || null,
-        };
-
-        // Only send the order form the first time — repeating it on every
-        // follow-up question (fabric, price, other page) sounds robotic.
-        if (!alreadyCollecting && !aiResult.reply.includes('নাম:')) {
-          reply = `${aiResult.reply}\n\n${orderFormReply()}`;
+        if (paymentNow) {
+          reply = 'অর্ডারটা নেওয়া আছে। বিকাশে টাকা পাঠিয়ে ট্রানজেকশন আইডি দিন।';
         } else {
-          reply = aiResult.reply;
-        }
-      } else if (aiResult.intent === 'CONFIRM_ORDER') {
-        const customerName = (aiResult.customerName || conversation.order_name || '').trim();
-        const customerAddress = (aiResult.customerAddress || conversation.order_address || '').trim();
-        const customerPhone = resolvePhone(aiResult.customerPhone, conversation.order_phone, messageText);
-
-        const finalProductName = conversation.pending_product_name || aiResult.productName;
-        const finalProductPrice = Number(conversation.pending_product_price || aiResult.productPrice);
-        const finalVariant = conversation.pending_variant || aiResult.variant || null;
-
-        const checked = validateOrderFields({
-          name: customerName,
-          address: customerAddress,
-          phone: customerPhone,
-          productName: finalProductName,
-          productPrice: finalProductPrice,
-        });
-
-        if (checked.errors.includes('product') || checked.errors.includes('price')) {
-          reply = 'আপনি কোন প্রোডাক্টটি অর্ডার করতে চাচ্ছেন একটু বলবেন? সঠিক দাম মিলিয়ে তারপর কনফার্ম করব।';
+          const alreadyCollecting = conversation.state === 'AWAITING_ORDER_DETAILS';
           stateUpdate = {
             state: 'AWAITING_ORDER_DETAILS',
-            order_name: customerName || null,
-            order_address: customerAddress || null,
-            order_phone: customerPhone || null,
+            pending_product_name: aiResult.productName || conversation.pending_product_name || null,
+            pending_product_price: aiResult.productPrice || conversation.pending_product_price || null,
+            pending_variant: aiResult.variant || conversation.pending_variant || null,
+            order_name: parsed.name || conversation.order_name || null,
+            order_address: parsed.address || conversation.order_address || null,
+            order_phone: parsed.phone || conversation.order_phone || null,
           };
-        } else if (!checked.ok) {
-          reply = missingFieldsReply(checked.errors);
-          stateUpdate = {
-            state: 'AWAITING_ORDER_DETAILS',
-            order_name: checked.name || customerName || null,
-            order_address: checked.address || customerAddress || null,
-            order_phone: customerPhone || conversation.order_phone || null,
-          };
-        } else {
-          const dup = await findDuplicateOrder(senderId, finalProductName);
-          if (dup) {
-            reply = duplicateOrderReply(dup.id);
-            stateUpdate = {
-              state: 'ORDER_CONFIRM',
-              last_order_id: dup.id,
-              order_name: checked.name,
-              order_address: checked.address,
-              order_phone: checked.phone,
-              pending_product_name: finalProductName,
-              pending_product_price: checked.productPrice,
-              pending_variant: finalVariant,
-            };
+
+          if (alreadyCollecting || /নাম\s*:/i.test(aiResult.reply || '')) {
+            reply = alreadyCollecting
+              ? 'নাম, মোবাইল আর সম্পূর্ণ ঠিকানা একসাথে পাঠায়েন।'
+              : aiResult.reply;
           } else {
-            const delivery = calculateDelivery(checked.address);
-            const advance = calculateAdvance(checked.productPrice, delivery.charge);
-            const total = checked.productPrice + delivery.charge;
-
-            const order = await saveOrder({
-              sender_id: senderId,
-              name: checked.name,
-              address: checked.address,
-              phone: checked.phone,
-              product_name: finalProductName,
-              product_price: checked.productPrice,
-              variant: finalVariant,
-              delivery_charge: delivery.charge,
-              delivery_zone: delivery.zone,
-              advance_amount: advance.amount,
-              total_amount: total,
-              webhook_mid: mid || null,
-            });
-            lastOrderId = order.id;
-
-            stateUpdate = {
-              state: 'ORDER_CONFIRM',
-              order_name: checked.name,
-              order_address: checked.address,
-              order_phone: checked.phone,
-              pending_product_name: finalProductName,
-              pending_product_price: checked.productPrice,
-              pending_variant: finalVariant,
-              last_order_id: order.id,
-            };
-
-            reply = orderConfirmReply({
-              name: checked.name,
-              product: finalProductName,
-              variant: finalVariant,
-              address: checked.address,
-              phone: checked.phone,
-              productPrice: checked.productPrice,
-              delivery,
-              advance,
-              total,
-            });
-
-            await notifyModerator({
-              type: 'NEW_ORDER',
-              order: {
-                id: order.id,
-                name: checked.name,
-                product: finalProductName,
-                total,
-              },
-              senderId,
-            });
+            reply = `${aiResult.reply}\n\n${orderFormReply()}`;
           }
         }
       } else if (aiResult.intent === 'HANDOFF') {
@@ -574,6 +764,14 @@ export async function handleMessage(event, baseUrl = '') {
           reply = aiResult.reply && !/অপেক্ষা/i.test(aiResult.reply)
             ? aiResult.reply
             : 'রিল বা স্ক্রিনশট পাঠায়েন, মিলিয়ে দাম বলে দিব।';
+        } else if (conversation.pending_product_name && isWantThisProduct(messageText)) {
+          reply = orderFormReply();
+          stateUpdate = {
+            state: 'AWAITING_ORDER_DETAILS',
+            pending_product_name: conversation.pending_product_name,
+            pending_product_price: conversation.pending_product_price,
+            pending_variant: conversation.pending_variant,
+          };
         } else {
           await triggerHandoff(senderId, conversation, 'AI could not resolve query', messageText, {
             screenshotUrl: visualUrl,
@@ -586,41 +784,17 @@ export async function handleMessage(event, baseUrl = '') {
         }
       }
 
-      // ── Payment Claim Extraction ─────────────────────────────────────────
-      // If AI extracted paymentInfo and there's an existing order, update it
-      if (aiResult.paymentInfo && conversation.last_order_id) {
-        try {
-          await updateOrderPaymentClaim(conversation.last_order_id, {
-            payment_method: aiResult.paymentInfo.paymentMethod,
-            sender_number: aiResult.paymentInfo.senderNumber,
-            transaction_id: aiResult.paymentInfo.transactionId,
-            claimed_amount: aiResult.paymentInfo.claimedAmount,
-            screenshot_url: visualUrl || null,
-          });
-          console.log(`💳 [Payment Claim] Order #${conversation.last_order_id} updated with payment claim. Status → pending_verification`);
-
-          // Notify moderator about the payment claim
-          await notifyModerator({
-            type: 'PAYMENT_CLAIMED',
-            senderId,
-            orderId: conversation.last_order_id,
-            paymentInfo: aiResult.paymentInfo,
-            screenshotUrl: visualUrl || null,
-            lastMessage: messageText,
-          });
-
-          // Reset conversation state after payment claim is captured
+      if (/কারিগরি সমস্যা/.test(reply || '') && conversation.pending_product_name) {
+        reply = isWantThisProduct(messageText)
+          ? orderFormReply()
+          : `${conversation.pending_product_name}, ${conversation.pending_product_price} টাকা। এইটাই নেবেন?`;
+        if (isWantThisProduct(messageText)) {
           stateUpdate = {
-            state: 'GREETING',
-            pending_product_name: null,
-            pending_product_price: null,
-            pending_variant: null,
-            order_name: null,
-            order_address: null,
-            order_phone: null,
+            state: 'AWAITING_ORDER_DETAILS',
+            pending_product_name: conversation.pending_product_name,
+            pending_product_price: conversation.pending_product_price,
+            pending_variant: conversation.pending_variant,
           };
-        } catch (err) {
-          console.error('Failed to update payment claim:', err.message);
         }
       }
       } // skipAi

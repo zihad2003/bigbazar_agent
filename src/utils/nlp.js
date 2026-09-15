@@ -97,11 +97,62 @@ export function isProductQuery(text) {
   return hasProductType || hasIntentSignal;
 }
 
-/** Customer wants catalog / dress photos — not a complaint, not a screenshot they sent. */
+/** Customer wants catalog / dress photos — not “send me that item”. */
 export function isPhotoRequest(text) {
   if (!text) return false;
+  if (isWantThisProduct(text)) return false;
   const lower = text.toLowerCase();
   return /(pic|photo|picture|chobi|cobi|ছবি|পিক|পিকচার|ফটো|দেখাও|দেখান|dekhao|dekhon|dekhaw|কালেকশন|collection)/i.test(lower);
+}
+
+/** “hea den to” / “nibo” after a shown SKU — they want that product, not a screenshot. */
+export function isWantThisProduct(text) {
+  const t = (text || '').trim().toLowerCase();
+  if (!t || t.length > 80) return false;
+  const parsed = extractOrderDetails(text);
+  if (parsed.phone || (parsed.name && parsed.address)) return false;
+  return /(hea\s*den|den\s*to|dao\s*to|diye\s*den|pathay?\s*den|send\s*(kor|it)|eta\s*(den|dao|nibo)|oida\s*(den|nibo)|ami\s*nibo|kine\s*nibo|order\s*kor|kibabe\s*order|কিভাবে\s*অর্ডার|অর্ডার\s*কর)/i.test(t);
+}
+
+export function isPaymentProof(text) {
+  if (!text) return false;
+  const t = text.toLowerCase();
+  return /(trx|txn|transaction|transection|ট্রানজেকশন|last\s*(number|4|digit)|লাস্ট\s*(নম্বর|৪|চার)|send money|পাঠাই|পাঠিয়েছি|পাঠিয়েছি|bkash|বিকাশ)/i.test(t);
+}
+
+export function extractPaymentRef(text) {
+  if (!text) return null;
+  const id = String(text).match(/(?:trx|txn|transaction|transection|ট্রানজেকশন|id)\s*[:#\-]*\s*([a-z0-9]{4,})/i);
+  if (id) return id[1];
+  const last4 = String(text).match(/(?:last|লাস্ট)[^\d]{0,12}(\d{4})/i);
+  return last4 ? last4[1] : null;
+}
+
+function lastLabeledValue(text, labels) {
+  // Require : or = so we don't treat “অর্ডার করতে নাম, মোবাইল…” as a filled name.
+  const re = new RegExp(`(?:${labels})\\s*[:\\-=]\\s*([^\\n\\r]+)`, 'gi');
+  let match;
+  let last = '';
+  while ((match = re.exec(text))) {
+    const v = String(match[1] || '')
+      .replace(/[|].*$/, '')
+      .replace(/^(মোবাইল|ঠিকানা|নাম|mobile|address|name)\s*[:\-=]?\s*/i, '')
+      .trim();
+    if (v && !/^(মোবাইল|ঠিকানা|নাম|mobile|address|name)?$/i.test(v)) last = v;
+  }
+  return last || null;
+}
+
+export function extractOrderDetails(text) {
+  if (!text) return { name: null, address: null, phone: null };
+  const phone = extractOrderField('phone', text);
+  let name = lastLabeledValue(text, 'নাম|name');
+  let address = lastLabeledValue(text, 'ঠিকানা|address|thikana');
+  if (name) name = name.replace(/মো(?:বাইল)?.*/i, '').trim();
+  if (address) address = address.replace(/মীরসরাই.*$/i, '').trim();
+  if (name && name.length < 2) name = null;
+  if (address && address.length < 3) address = null;
+  return { name: name || null, address: address || null, phone };
 }
 
 // ── Bengali digit conversion ──────────────────────────────────────────────────
