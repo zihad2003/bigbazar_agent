@@ -50,6 +50,9 @@ async function refreshCatalog() {
     initialLoadDone = true;
 
     console.log(`[CatalogCache] refreshed ${products.length} products from ${source} at ${lastRefreshedAt}`);
+    if (source === 'd1' && products.length < 5) {
+      console.error('[CatalogCache] Catalog is nearly empty because TiDB is blocked. Add this server IP to the TiDB Cloud allowlist (Network Access). Screenshot matching needs the live catalog, not 1 D1 row.');
+    }
   } catch (err) {
     console.error(`[CatalogCache] refresh failed — serving stale data. Error: ${err.message}`);
   }

@@ -40,6 +40,62 @@ async function executeQuery(sql, params = []) {
   return data.result[0];
 }
 
+function errText(err) {
+  return String(err?.message || err || '');
+}
+
+/** SQLite vs D1 wording: "no such column" vs "no column named" */
+function isMissingColumn(err) {
+  const m = errText(err).toLowerCase();
+  return m.includes('no such column') || m.includes('no column named');
+}
+
+async function tryAddColumn(table, column, type) {
+  try {
+    await executeQuery(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    console.log(`✅ D1 added ${table}.${column}`);
+  } catch (err) {
+    const m = errText(err).toLowerCase();
+    if (m.includes('duplicate column') || m.includes('already exists')) return;
+    console.warn(`⚠️ D1 ${table}.${column}: ${err.message}`);
+  }
+}
+
+async function ensureAgentSchema() {
+  await executeQuery(`
+    CREATE TABLE IF NOT EXISTS unanswered_queries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sender_id TEXT NOT NULL,
+      customer_message TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  await tryAddColumn('unanswered_queries', 'bot_draft', 'TEXT');
+  await tryAddColumn('unanswered_queries', 'screenshot_url', 'TEXT');
+  await tryAddColumn('unanswered_queries', 'reason', 'TEXT');
+  await tryAddColumn('unanswered_queries', 'retrieved_ids', 'TEXT');
+  await tryAddColumn('unanswered_queries', 'screenshot_match', 'TEXT');
+  await tryAddColumn('unanswered_queries', 'cluster_id', 'TEXT');
+  await tryAddColumn('orders', 'delivery_charge', 'REAL');
+  await tryAddColumn('orders', 'delivery_zone', 'TEXT');
+  await tryAddColumn('orders', 'advance_amount', 'REAL');
+  await tryAddColumn('orders', 'total_amount', 'REAL');
+  await tryAddColumn('orders', 'webhook_mid', 'TEXT');
+  await executeQuery(`
+    CREATE TABLE IF NOT EXISTS agent_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sender_id TEXT,
+      reply_ms INTEGER,
+      screenshot_match TEXT,
+      retrieved_ids TEXT,
+      handoff INTEGER DEFAULT 0,
+      order_id TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+}
+
 const DEFAULT_STATE = {
   state: 'GREETING',
   paused_by_ai: 0,
@@ -70,6 +126,11 @@ async function ensureSettingsTable() {
 export async function preloadSettings() {
   try {
     await ensureSettingsTable();
+    try {
+      await ensureAgentSchema();
+    } catch (schemaErr) {
+      console.warn('⚠️ D1 schema ensure failed:', schemaErr.message);
+    }
     const result = await executeQuery('SELECT key, value FROM settings');
     const rows = result?.results || [];
     for (const row of rows) {
@@ -197,8 +258,7 @@ export async function saveOrder({ sender_id, name, address, phone, product_name,
     );
     return { id: result.meta.last_row_id };
   } catch (err) {
-    const msg = String(err.message || '');
-    if (!msg.includes('no such column')) throw err;
+    if (!isMissingColumn(err)) throw err;
     const result = await executeQuery(
       `INSERT INTO orders (sender_id, customer_name, customer_address, customer_phone,
        product_name, product_price, variant, status, payment_method, sender_number, transaction_id, claimed_amount, screenshot_url)
@@ -491,7 +551,7 @@ export async function saveUnansweredQuery({ senderId, customerMessage, botDraft,
       params
     );
   } catch (err) {
-    if (!String(err.message || '').includes('no such column')) throw err;
+    if (!isMissingColumn(err)) throw err;
     await executeQuery(
       `INSERT INTO unanswered_queries (sender_id, customer_message, status, created_at)
        VALUES (?, ?, 'pending', datetime('now'))`,
@@ -522,7 +582,7 @@ export async function persistUnansweredClusters() {
         );
         labeled++;
       } catch (err) {
-        if (!String(err.message || '').includes('no such column')) throw err;
+        if (!isMissingColumn(err)) throw err;
         return { labeled: 0, clusters: clusters.filter(c => c.items.length >= 2).length };
       }
     }

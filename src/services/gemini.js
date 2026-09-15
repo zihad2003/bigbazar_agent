@@ -8,18 +8,20 @@
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-const DEFAULT_PRIMARY = 'gemini-2.0-flash';
+const DEFAULT_PRIMARY = 'gemini-2.5-flash';
 const DEFAULT_FALLBACK = 'gemini-flash-lite-latest';
 
 /** Models that are deprecated, quota-blocked, or unavailable — auto-upgrade at startup */
 const BLOCKED_MODELS = new Set([
   'gemini-3.5-flash-lite',
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-001',
 ]);
 
 function resolveModel(envValue, defaultModel) {
   const model = (envValue || defaultModel).trim();
   if (BLOCKED_MODELS.has(model)) {
-    console.warn(`⚠️ [Gemini API] Model "${model}" is deprecated or quota-blocked. Using "${defaultModel}" instead.`);
+    console.warn(`⚠️ [Gemini API] Model "${model}" is unavailable. Using "${defaultModel}" instead.`);
     return defaultModel;
   }
   return model;
@@ -27,6 +29,7 @@ function resolveModel(envValue, defaultModel) {
 
 const PRIMARY_MODEL = resolveModel(process.env.GEMINI_MODEL, DEFAULT_PRIMARY);
 const FALLBACK_MODEL = resolveModel(process.env.GEMINI_FALLBACK_MODEL, DEFAULT_FALLBACK);
+let activePrimary = PRIMARY_MODEL;
 
 /** Classify Gemini API errors for correct fallback behavior */
 function classifyGeminiError(msg) {
@@ -111,7 +114,7 @@ const VISUAL_RERANK_SCHEMA = {
 /**
  * Fetch helper for Gemini REST API with automatic model fallback
  */
-async function callGemini(payload, modelName = PRIMARY_MODEL) {
+async function callGemini(payload, modelName = activePrimary) {
   if (!GEMINI_API_KEY) {
     throw new Error('Missing GEMINI_API_KEY in environment variables.');
   }
@@ -133,6 +136,10 @@ async function callGemini(payload, modelName = PRIMARY_MODEL) {
       const errorType = classifyGeminiError(msg);
 
       if (shouldTryGeminiFallback(errorType, modelName)) {
+        if (errorType === 'model_not_found' && modelName === activePrimary && activePrimary !== FALLBACK_MODEL) {
+          console.warn(`⚠️ [Gemini API] Demoting "${modelName}" → "${FALLBACK_MODEL}" for this process`);
+          activePrimary = FALLBACK_MODEL;
+        }
         console.warn(`⚠️ [Gemini API] Model "${modelName}" failed (${errorType}). Retrying with "${FALLBACK_MODEL}"...`);
         try {
           return await callGemini(payload, FALLBACK_MODEL);
@@ -150,6 +157,10 @@ async function callGemini(payload, modelName = PRIMARY_MODEL) {
 
     const errorType = classifyGeminiError(err.message);
     if (shouldTryGeminiFallback(errorType, modelName)) {
+      if (errorType === 'model_not_found' && modelName === activePrimary && activePrimary !== FALLBACK_MODEL) {
+        console.warn(`⚠️ [Gemini API] Demoting "${modelName}" → "${FALLBACK_MODEL}" for this process`);
+        activePrimary = FALLBACK_MODEL;
+      }
       console.warn(`⚠️ [Gemini API] Model "${modelName}" failed (${errorType}): ${err.message}. Retrying with "${FALLBACK_MODEL}"...`);
       try {
         return await callGemini(payload, FALLBACK_MODEL);
