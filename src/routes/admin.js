@@ -20,14 +20,15 @@ export const adminRouter = Router();
 
 // Timing-safe bearer token guard to prevent timing attacks
 adminRouter.use((req, res, next) => {
-  const token = req.headers['x-admin-token'];
-  
-  if (!token || !process.env.ADMIN_SECRET) {
+  const token = String(req.headers['x-admin-token'] || '').trim();
+  const secret = String(process.env.ADMIN_SECRET || '').trim();
+
+  if (!token || !secret) {
     return res.sendStatus(401);
   }
 
   const tokenBuf = Buffer.from(token);
-  const secretBuf = Buffer.from(process.env.ADMIN_SECRET);
+  const secretBuf = Buffer.from(secret);
 
   const match = tokenBuf.length === secretBuf.length &&
     crypto.timingSafeEqual(tokenBuf, secretBuf);

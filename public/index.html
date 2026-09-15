@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta name="theme-color" content="#f3efe6">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -1132,8 +1133,8 @@
   <div class="modal">
     <h2>Connect Dashboard</h2>
     <p>Enter the <code>ADMIN_SECRET</code> from your <code>.env</code> file to authenticate.</p>
-    <p style="font-size: 12px; color: var(--muted); margin-top: 6px; margin-bottom: 12px; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);">
-      🔑 Default secret configured in <code>.env</code>: <code style="color: var(--accent); font-weight: 600;">my_secret_agent</code>
+    <p style="font-size: 12px; color: var(--muted); margin-top: 6px; margin-bottom: 12px; background: var(--surface-2); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);">
+      লোকাল: <code>http://localhost:3000/dashboard</code> — পাস <code>.env</code> এর <code>ADMIN_SECRET</code>।
     </p>
     <div class="field">
       <label>Admin Secret</label>
@@ -1141,7 +1142,7 @@
     </div>
     <div id="authError" style="color: var(--red); font-size: 13px; margin-top: 10px; display: none; background: var(--red-dim); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(244,63,94,0.2);"></div>
     <div class="modal-footer" style="margin-top: 14px;">
-      <button class="btn btn-primary" id="btnConnect" onclick="saveSecret()">Connect</button>
+      <button type="button" class="btn btn-primary" id="btnConnect" onclick="saveSecret()">Connect</button>
     </div>
   </div>
 </div>
@@ -1335,36 +1336,75 @@
   let galleryIndex  = 0;
   let currentProduct = null;
   let refreshTimer  = null;
+  let authBusy = false;
+
+  async function killStaleServiceWorkers() {
+    try {
+      let hadSW = false;
+      if (navigator.serviceWorker) {
+        hadSW = !!navigator.serviceWorker.controller;
+        const regs = await navigator.serviceWorker.getRegistrations();
+        if (regs.length) hadSW = true;
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+      if (window.caches) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      if (hadSW && !sessionStorage.getItem('bb_sw_cleared')) {
+        sessionStorage.setItem('bb_sw_cleared', '1');
+        location.reload();
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  async function checkAdminSecret(secret) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      return await fetch('/admin/auth/check', {
+        headers: { 'x-admin-token': secret, 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   // ── Auth ──────────────────────────────────────────────────────────────────
-  document.addEventListener('DOMContentLoaded', async () => {
-    const secret = localStorage.getItem('admin_secret');
-    if (secret) {
-      try {
-        const res = await fetch('/admin/auth/check', {
-          headers: { 'x-admin-token': secret, 'Content-Type': 'application/json' }
-        });
-        if (res.ok) {
-          document.getElementById('overlayAuth').classList.remove('open');
-          refreshAll();
-          if (!refreshTimer) refreshTimer = setInterval(refreshAll, 30000);
-        } else {
-          localStorage.removeItem('admin_secret');
-          document.getElementById('overlayAuth').classList.add('open');
-          showAuthError('Saved secret token is invalid. Default is "my_secret_agent"');
-        }
-      } catch (e) {
-        document.getElementById('overlayAuth').classList.add('open');
-      }
-    } else {
-      document.getElementById('overlayAuth').classList.add('open');
-    }
-
-    // Tab buttons
+  document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.tab').forEach(btn => {
       btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
   });
+
+  (async function initAuth() {
+    if (await killStaleServiceWorkers()) return;
+
+    const secret = localStorage.getItem('admin_secret');
+    if (!secret) {
+      document.getElementById('overlayAuth').classList.add('open');
+      return;
+    }
+
+    try {
+      const res = await checkAdminSecret(secret);
+      if (res.ok) {
+        document.getElementById('overlayAuth').classList.remove('open');
+        refreshAll().catch(() => {});
+        if (!refreshTimer) refreshTimer = setInterval(() => refreshAll().catch(() => {}), 30000);
+      } else {
+        localStorage.removeItem('admin_secret');
+        document.getElementById('overlayAuth').classList.add('open');
+        showAuthError('Saved secret is invalid. Use ADMIN_SECRET from the .env file.');
+      }
+    } catch (e) {
+      document.getElementById('overlayAuth').classList.add('open');
+    }
+  })();
 
   function showAuthError(msg) {
     const errEl = document.getElementById('authError');
@@ -1375,33 +1415,42 @@
   }
 
   async function saveSecret() {
+    if (authBusy) return;
     const inp = document.getElementById('inpSecret');
     const btn = document.getElementById('btnConnect');
     const errEl = document.getElementById('authError');
-    const v = inp.value.trim();
+    const v = (inp?.value || '').trim();
     if (!v) {
       showAuthError('Please enter an admin secret token.');
       return;
     }
 
-    if (btn) btn.disabled = true;
+    authBusy = true;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Connecting…';
+    }
     if (errEl) errEl.style.display = 'none';
 
     try {
-      const res = await fetch('/admin/auth/check', {
-        headers: { 'x-admin-token': v, 'Content-Type': 'application/json' }
-      });
+      if (await killStaleServiceWorkers()) return;
+      const res = await checkAdminSecret(v);
       if (!res.ok) {
         throw new Error(res.status === 401 ? 'Invalid Admin Secret token' : `Server error ${res.status}`);
       }
       localStorage.setItem('admin_secret', v);
       document.getElementById('overlayAuth').classList.remove('open');
-      refreshAll();
-      if (!refreshTimer) refreshTimer = setInterval(refreshAll, 30000);
+      refreshAll().catch(() => {});
+      if (!refreshTimer) refreshTimer = setInterval(() => refreshAll().catch(() => {}), 30000);
     } catch (err) {
-      showAuthError(`${err.message}. Default in .env is "my_secret_agent"`);
+      const msg = err.name === 'AbortError' ? 'Server did not respond' : err.message;
+      showAuthError(`${msg}. .env ফাইলে ADMIN_SECRET লাইনটা দাও।`);
     } finally {
-      if (btn) btn.disabled = false;
+      authBusy = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Connect';
+      }
     }
   }
 
@@ -1588,7 +1637,7 @@
   }
 
   async function resumeBot(id) {
-    await api(`/admin/conversations/${id}/resume`, 'POST`);
+    await api(`/admin/conversations/${id}/resume`, 'POST');
     toast('Bot resumed', 'success');
     loadConversations();
   }

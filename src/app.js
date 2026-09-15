@@ -24,6 +24,25 @@ app.use(express.json({
 }));
 app.use(requestLogger);
 
+// Kill leftover service workers from other apps that previously used :3000
+app.get('/sw.js', (_req, res) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(`self.addEventListener('install',()=>self.skipWaiting());
+self.addEventListener('activate',event=>{
+  event.waitUntil((async()=>{
+    const keys=await caches.keys();
+    await Promise.all(keys.map(k=>caches.delete(k)));
+    await self.registration.unregister();
+  })());
+});`);
+});
+
+app.get(['/dashboard', '/dashboard/'], (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+
 // Serve static dashboard
 app.use('/dashboard', express.static(path.join(__dirname, '../public')));
 app.get('/dashbroad', (req, res) => res.redirect('/dashboard'));

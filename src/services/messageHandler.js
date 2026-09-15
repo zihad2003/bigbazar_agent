@@ -296,6 +296,7 @@ export async function handleMessage(event, baseUrl = '') {
           }
         }
       } else if (aiResult.intent === 'START_ORDER') {
+        const alreadyCollecting = conversation.state === 'AWAITING_ORDER_DETAILS';
         stateUpdate = {
           state: 'AWAITING_ORDER_DETAILS',
           pending_product_name: aiResult.productName || conversation.pending_product_name || null,
@@ -303,7 +304,9 @@ export async function handleMessage(event, baseUrl = '') {
           pending_variant: aiResult.variant || conversation.pending_variant || null,
         };
 
-        if (!aiResult.reply.includes('নাম:')) {
+        // Only send the order form the first time — repeating it on every
+        // follow-up question (fabric, price, other page) sounds robotic.
+        if (!alreadyCollecting && !aiResult.reply.includes('নাম:')) {
           reply = `${aiResult.reply}\n\n${orderFormReply()}`;
         } else {
           reply = aiResult.reply;
