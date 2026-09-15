@@ -97,18 +97,55 @@ export function isProductQuery(text) {
   return hasProductType || hasIntentSignal;
 }
 
+export function isShowMoreRequest(text) {
+  const t = (text || '').toLowerCase();
+  if (!t) return false;
+  return /(ar+\s*ki\s*(ace|ase|acha|ache)|aro\s*(dekha|pic|chobi|kisu)|আরও|আর কি আছে|onno (gula|ta)|more\s*(pic|photo|item)|ki\s*ki\s*(ace|ase)|dekhan|dekhai)/i.test(t);
+}
+
+export function isSizeQuestion(text) {
+  return /(size|সাইজ|saiz|kon\s*kon\s*size| কোন সাইজ)/i.test(text || '');
+}
+
+export function isTotalQuestion(text) {
+  return /(total|মোট|\bmot\b|koto\s*asbe|asbe\s*total|tahole\s*total|all\s*mile|sob\s*mile)/i.test(text || '');
+}
+
+export function isDeliveryQuestion(text) {
+  if (!text || isTotalQuestion(text)) return false;
+  if (extractDeliveryHint(text) && /koto|কত|charge/i.test(text)) return true;
+  return /(delivery|ডেলিভারি|delivary|charge\s*koto)/i.test(text);
+}
+
+export function isBargain(text) {
+  return /(rakhen|rakho|koma(?:y|o)|komay|discount|offer|less\s*price|কম(?:ান|াই|াতে)|দাম\s*কম)/i.test(text || '');
+}
+
+export function extractDeliveryHint(text) {
+  if (!text) return null;
+  if (/(sitakund|সীতাকুণ্ড|সিতাকুন্ড|সীতাকুন্ড)/i.test(text)) return 'সীতাকুণ্ড, চট্টগ্রাম';
+  if (/(মিরসরাই|মীরসরাই|mirsharai|mirsarai|baraiyarhat|বারইয়ারহাট)/i.test(text)) return 'মীরসরাই';
+  if (/(হাতহাজারী|হাটহাজারী|hathazari|রাউজান|raozan|পটিয়া|পটিয়া|pati[uy]a)/i.test(text)) return 'চট্টগ্রাম';
+  if (/(চট্টগ্রাম|chittagong|chattogram|\bctg\b)/i.test(text)) return 'চট্টগ্রাম';
+  if (/(ঢাকা|dhaka)/i.test(text)) return 'ঢাকা';
+  return null;
+}
+
 /** Customer wants catalog / dress photos — not “send me that item”. */
 export function isPhotoRequest(text) {
   if (!text) return false;
+  if (isShowMoreRequest(text)) return true;
   if (isWantThisProduct(text)) return false;
   const lower = text.toLowerCase();
-  return /(pic|photo|picture|chobi|cobi|ছবি|পিক|পিকচার|ফটো|দেখাও|দেখান|dekhao|dekhon|dekhaw|কালেকশন|collection)/i.test(lower);
+  return /(pic|photo|picture|chobi|cobi|ছবি|পিক|পিকচার|ফটো|দেখাও|দেখান|dekhao|dekhon|dekhaw|dekhan|কালেকশন|collection)/i.test(lower);
 }
 
 /** “hea den to” / “nibo” after a shown SKU — they want that product, not a screenshot. */
 export function isWantThisProduct(text) {
   const t = (text || '').trim().toLowerCase();
   if (!t || t.length > 80) return false;
+  if (isShowMoreRequest(t) || isTotalQuestion(t) || isBargain(t) || isDeliveryQuestion(t) || isSizeQuestion(t)) return false;
+  if (extractQuantity(t)) return false;
   const parsed = extractOrderDetails(text);
   if (parsed.phone || (parsed.name && parsed.address)) return false;
   return /(hea\s*den|den\s*to|dao\s*to|diye\s*den|pathay?\s*den|send\s*(kor|it)|eta\s*(den|dao|nibo)|oida\s*(den|nibo)|ami\s*nibo|kine\s*nibo|order\s*kor|kibabe\s*order|কিভাবে\s*অর্ডার|অর্ডার\s*কর)/i.test(t);
@@ -160,6 +197,31 @@ const BANGLA_DIGITS = { '০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':
 
 function banglaToAscii(text) {
   return text.replace(/[০-৯]/g, ch => BANGLA_DIGITS[ch] || ch);
+}
+
+const QTY_WORDS = [
+  [/(?:^|\s)(?:ek|ak|ekta|akta|একটা|একটি)\b/i, 1],
+  [/(?:^|\s)(?:dui|duta|দুইটা|দুইটি|দুটো)\b/i, 2],
+  [/(?:^|\s)(?:tin|tinta|তিনটা|তিনটি)\b/i, 3],
+  [/(?:^|\s)(?:char|চারটা|চারটি)\b/i, 4],
+  [/(?:^|\s)(?:panch|পাঁচটা|পাঁচটি)\b/i, 5],
+];
+
+/** “aita 2 ta lagbe” / “3 ta nibo” — not a price like 4000. */
+export function extractQuantity(text) {
+  if (!text) return null;
+  const ascii = banglaToAscii(String(text));
+  const m = ascii.match(/(?:^|[^\d])(\d{1,2})\s*(?:ta|ti|pcs?|pis|piece|pic|টা|টি|পিস)/i);
+  if (m) {
+    const n = Number(m[1]);
+    if (n >= 1 && n <= 20) return n;
+  }
+  if (/(nibo|lagbe|dao|den|পিস|pcs|pis|টা)/i.test(ascii)) {
+    for (const [re, n] of QTY_WORDS) {
+      if (re.test(ascii)) return n;
+    }
+  }
+  return null;
 }
 
 // ── Field extraction ──────────────────────────────────────────────────────────

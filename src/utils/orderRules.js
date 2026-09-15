@@ -47,10 +47,37 @@ export function calculateDelivery(address) {
   if (/(মিরসরাই|মীরসরাই|mirsharai|mirsarai|baraiyarhat|বারইয়ারহাট|বারইয়ারহাট)/i.test(addr)) {
     return { charge: 0, zone: 'মীরসরাই (ফ্রি)' };
   }
+  if (/(sitakund|সীতাকুণ্ড|সিতাকুন্ড|সীতাকুন্ড|hathazari|হাটহাজারী|হাতহাজারী|রাউজান|raozan|পটিয়া|পটিয়া|pati[uy]a)/i.test(addr)) {
+    return { charge: 100, zone: 'চট্টগ্রাম জেলা' };
+  }
   if (/(চট্টগ্রাম|chittagong|chattogram|ctg)/i.test(addr)) {
     return { charge: 100, zone: 'চট্টগ্রাম জেলা' };
   }
   return { charge: 150, zone: 'সারা বাংলাদেশ' };
+}
+
+export function resolveQty(...values) {
+  for (const v of values) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= 1 && n <= 20) return Math.floor(n);
+  }
+  return 1;
+}
+
+export function lineTotal(unitPrice, qty) {
+  return (Number(unitPrice) || 0) * resolveQty(qty);
+}
+
+export function quoteOrderTotal({ productName, unitPrice, qty, addressHint }) {
+  const q = resolveQty(qty);
+  const sub = lineTotal(unitPrice, q);
+  const name = productName || 'পণ্য';
+  if (addressHint) {
+    const delivery = calculateDelivery(addressHint);
+    const total = sub + delivery.charge;
+    return `${q}টা ${name} ${sub} + ডেলিভারি (${delivery.zone}) ${delivery.charge} = ${total} টাকা।`;
+  }
+  return `${q}টা ${name} ${sub} টাকা। মীরসরাই ফ্রি, চট্টগ্রাম ১০০, দেশে ১৫০। ঠিকানা বললে মোট বলব।`;
 }
 
 export function calculateAdvance(productPrice, deliveryCharge) {

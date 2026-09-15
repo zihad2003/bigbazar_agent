@@ -16,8 +16,23 @@ import {
   missingFieldsReply,
   isDuplicateOrder,
   DUPLICATE_WINDOW_MS,
+  quoteOrderTotal,
+  lineTotal,
 } from '../src/utils/orderRules.js';
-import { extractOrderField, extractOrderDetails, extractPaymentRef, isWantThisProduct, isPaymentProof } from '../src/utils/nlp.js';
+import {
+  extractOrderField,
+  extractOrderDetails,
+  extractPaymentRef,
+  extractQuantity,
+  extractDeliveryHint,
+  isWantThisProduct,
+  isPaymentProof,
+  isShowMoreRequest,
+  isPhotoRequest,
+  isBargain,
+  isTotalQuestion,
+  isDeliveryQuestion,
+} from '../src/utils/nlp.js';
 import { buildSystemPrompt } from '../src/utils/prompts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -88,6 +103,23 @@ assert(isWantThisProduct('kibabe order korbo'), 'kibabe order is buy intent');
 assert(!isWantThisProduct('নাম:zihad মো01857045449 ঠিকানা:Bangladesh'), 'filled form is not buy-intent short-circuit');
 assert(isPaymentProof('last number dile hobe'), 'last number is payment proof');
 assert(extractPaymentRef('Transection id:hjs129ui') === 'hjs129ui', 'transection id extracted');
+
+assert(isShowMoreRequest('hea ar ki ace dekhan'), 'ar ki ace dekhan is show-more');
+assert(isPhotoRequest('hea ar ki ace dekhan'), 'show-more counts as photo request');
+assert(!isWantThisProduct('hea ar ki ace dekhan'), 'show-more is not buy-this');
+assert(isWantThisProduct('hea den to'), 'hea den to still buy-this');
+assert(extractQuantity('aita 2 ta lagbe') === 2, '2 ta lagbe');
+assert(extractQuantity('3 ta nibo') === 3, '3 ta nibo');
+assert(extractQuantity('4000 taka rakhen') === null, 'bargain amount is not qty');
+assert(isBargain('4000 taka rakhen'), '4000 taka rakhen is bargain');
+assert(isTotalQuestion('tahole total koto'), 'tahole total');
+assert(isTotalQuestion('koto asbe total'), 'koto asbe total');
+assert(isDeliveryQuestion('sitakunda te koto'), 'sitakunda te koto is delivery');
+assert(isDeliveryQuestion('delivery charge koto'), 'delivery charge koto');
+assert(extractDeliveryHint('sitakunda te koto').includes('চট্টগ্রাম'), 'sitakunda hint');
+assert(calculateDelivery('sitakunda').charge === 100, 'sitakunda is ctg 100');
+assert(lineTotal(1450, 3) === 4350, '3 x 1450');
+assert(quoteOrderTotal({ productName: 'three piece', unitPrice: 1450, qty: 3, addressHint: 'sitakunda' }).includes('4450'), 'sitakunda total 4450');
 
 const quotedOk = validateOrderFields({
   name: quoted.name,
@@ -189,6 +221,7 @@ const service = read('src/services/orderService.js');
 assert(handler.includes('resolvePhone') && handler.includes('validateOrderFields'), 'handler validates name/phone/address');
 assert(handler.includes('extractOrderDetails') && handler.includes('completeOrderIfPossible'), 'handler merges quoted form into confirm');
 assert(handler.includes('isWantThisProduct') && handler.includes('isPaymentProof'), 'handler has want-this and payment short-circuits');
+assert(handler.includes('salesFollowup') && handler.includes('extractQuantity'), 'handler answers qty/total/bargain mid-order');
 assert(handler.includes('findDuplicateOrder') && handler.includes('webhook_mid'), 'handler dup-check + webhook_mid');
 assert(handler.includes('orderConfirmReply') && handler.includes('orderFormReply'), 'handler uses orderRules copy');
 assert(!handler.includes('01877765535'), 'handler has no hardcoded bKash');

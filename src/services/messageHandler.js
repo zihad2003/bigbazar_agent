@@ -22,7 +22,7 @@ import { getCachedCatalog } from './catalogCache.js';
 import { saveOrder, findDuplicateOrder } from './orderService.js';
 import { sendMessage, sendImageMessage, sendTypingIndicator, extractMessengerMedia, fetchConversationHistory } from './messenger.js';
 import { notifyModerator } from './notifier.js';
-import { detectHandoffIntent, isGreetingOnly, greetingReply, isProductQuery, isPhotoRequest, isWantThisProduct, isPaymentProof, extractPaymentRef, extractOrderDetails } from '../utils/nlp.js';
+import { detectHandoffIntent, isGreetingOnly, greetingReply, isProductQuery, isPhotoRequest, isWantThisProduct, isPaymentProof, extractPaymentRef, extractOrderDetails, isShowMoreRequest, isSizeQuestion, isTotalQuestion, isDeliveryQuestion, isBargain, extractDeliveryHint, extractQuantity } from '../utils/nlp.js';
 import { getProductImageUrls } from '../utils/searchNormalize.js';
 import {
   resolvePhone,
@@ -33,6 +33,9 @@ import {
   missingFieldsReply,
   orderConfirmReply,
   duplicateOrderReply,
+  resolveQty,
+  lineTotal,
+  quoteOrderTotal,
 } from '../utils/orderRules.js';
 import { buildSystemPrompt } from '../utils/prompts.js';
 
@@ -113,6 +116,75 @@ function looksLikeOrderDetails(text, parsed) {
   return /নাম\s*[:\-=]\s*\S+/i.test(text) && /(?:মোবাইল|মো|phone)\s*[:\-=]?\s*\S+/i.test(text);
 }
 
+function formatSizes(sizes) {
+  if (!sizes) return '';
+  if (Array.isArray(sizes)) return sizes.filter(Boolean).join(', ');
+  const raw = String(sizes).trim();
+  if (!raw) return '';
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.filter(Boolean).join(', ');
+  } catch (_) {}
+  return raw.replace(/[\[\]"]/g, '').trim();
+}
+
+function salesFollowup(conversation, messageText) {
+  const pending = conversation.pending_product_name;
+  const unit = Number(conversation.pending_product_price) || 0;
+  if (!pending || !messageText) return null;
+
+  const qtyIn = extractQuantity(messageText);
+  const hintIn = extractDeliveryHint(messageText);
+  const qty = resolveQty(qtyIn, conversation.pending_qty);
+  const hint = hintIn || conversation.pending_address_hint || conversation.order_address || null;
+  const patch = {
+    pending_product_name: pending,
+    pending_product_price: unit || conversation.pending_product_price,
+    pending_variant: conversation.pending_variant,
+  };
+  if (qtyIn) patch.pending_qty = qtyIn;
+  if (hintIn) patch.pending_address_hint = hintIn;
+
+  if (qtyIn && unit) {
+    const sub = lineTotal(unit, qty);
+    return {
+      reply: `${qty}টা ${pending} রাখলাম, ${sub} টাকা। নাম, মোবাইল আর ঠিকানা একসাথে পাঠায়েন।`,
+      stateUpdate: { ...patch, state: conversation.state === 'ORDER_CONFIRM' ? conversation.state : 'AWAITING_ORDER_DETAILS' },
+    };
+  }
+
+  if (isBargain(messageText) && unit) {
+    const quoted = quoteOrderTotal({ productName: pending, unitPrice: unit, qty, addressHint: hint });
+    return {
+      reply: `দাম কমানো যাবে না। ${quoted}`,
+      stateUpdate: patch,
+    };
+  }
+
+  if (isTotalQuestion(messageText) && unit) {
+    return {
+      reply: quoteOrderTotal({ productName: pending, unitPrice: unit, qty, addressHint: hint }),
+      stateUpdate: patch,
+    };
+  }
+
+  if (isDeliveryQuestion(messageText)) {
+    if (hint) {
+      const delivery = calculateDelivery(hint);
+      return {
+        reply: `${delivery.zone}-এ ডেলিভারি ${delivery.charge} টাকা।`,
+        stateUpdate: patch,
+      };
+    }
+    return {
+      reply: 'মীরসরাই ফ্রি, চট্টগ্রাম ১০০, দেশে ১৫০ টাকা।',
+      stateUpdate: patch,
+    };
+  }
+
+  return null;
+}
+
 async function completeOrderIfPossible({
   senderId,
   conversation,
@@ -129,8 +201,11 @@ async function completeOrderIfPossible({
     messageText
   );
 
-  const finalProductName = conversation.pending_product_name || aiResult?.productName;
-  const finalProductPrice = Number(conversation.pending_product_price || aiResult?.productPrice);
+  const unitName = conversation.pending_product_name || aiResult?.productName;
+  const unitPrice = Number(conversation.pending_product_price || aiResult?.productPrice);
+  const qty = resolveQty(conversation.pending_qty, extractQuantity(messageText));
+  const finalProductName = qty > 1 ? `${unitName} × ${qty}` : unitName;
+  const finalProductPrice = lineTotal(unitPrice, qty);
   const finalVariant = conversation.pending_variant || aiResult?.variant || null;
 
   const checked = validateOrderFields({
@@ -179,8 +254,9 @@ async function completeOrderIfPossible({
         order_name: checked.name,
         order_address: checked.address,
         order_phone: checked.phone,
-        pending_product_name: finalProductName,
-        pending_product_price: checked.productPrice,
+        pending_product_name: unitName,
+        pending_qty: qty,
+        pending_product_price: unitPrice,
         pending_variant: finalVariant,
       },
       lastOrderId: dup.id,
@@ -235,9 +311,10 @@ async function completeOrderIfPossible({
       order_name: checked.name,
       order_address: checked.address,
       order_phone: checked.phone,
-      pending_product_name: finalProductName,
-      pending_product_price: checked.productPrice,
+      pending_product_name: unitName,
+      pending_product_price: unitPrice,
       pending_variant: finalVariant,
+      pending_qty: qty,
       last_order_id: order.id,
     },
     lastOrderId: order.id,
@@ -536,33 +613,63 @@ export async function handleMessage(event, baseUrl = '') {
         }
       }
 
-      if (!skipAi && !visualUrl && isPhotoRequest(messageText)) {
+      if (!skipAi && !visualUrl && (isShowMoreRequest(messageText) || isPhotoRequest(messageText))) {
+        const showMore = isShowMoreRequest(messageText);
         let photoProducts = productsWithPhotos(products);
-        if (!photoProducts.length && conversation.pending_product_name) {
+        if (!photoProducts.length && conversation.pending_product_name && !showMore) {
           try {
             const pendingHit = await searchProducts(conversation.pending_product_name, null, null, null);
             photoProducts = productsWithPhotos(pendingHit.products);
           } catch (_) {}
         }
-        if (!photoProducts.length) {
-          photoProducts = productsWithPhotos(getCachedCatalog());
+        if (!photoProducts.length || showMore) {
+          const catalogPhotos = productsWithPhotos(getCachedCatalog());
+          if (showMore && conversation.pending_product_name) {
+            const pendingName = String(conversation.pending_product_name).toLowerCase();
+            const others = catalogPhotos.filter((p) => String(p.name || '').toLowerCase() !== pendingName);
+            photoProducts = others.length ? others : catalogPhotos;
+          } else if (!photoProducts.length) {
+            photoProducts = catalogPhotos;
+          }
         }
         const sentCount = await sendProductPhotos(senderId, photoProducts, baseUrl, 4);
         sentProductImage = sentCount > 0;
         if (sentCount > 0) {
-          const first = photoProducts[0];
-          stateUpdate = {
-            ...stateUpdate,
-            pending_product_name: first.name,
-            pending_product_price: Number(first.price) || null,
-          };
+          if (!showMore && !conversation.pending_product_name) {
+            const first = photoProducts[0];
+            stateUpdate = {
+              ...stateUpdate,
+              pending_product_name: first.name,
+              pending_product_price: Number(first.price) || null,
+            };
+          }
           reply = sentCount === 1
-            ? `${first.name}, ${first.price} টাকা। আরও দেখতে চাইলে বলেন।`
+            ? `${photoProducts[0].name}, ${photoProducts[0].price} টাকা। আরও দেখতে চাইলে বলেন।`
             : 'কিছু কালেকশন দিলাম। কোনটা পছন্দ হলে নাম বা নম্বর বলে দিয়েন।';
         } else {
-          reply = 'এই মুহূর্তে কালেকশনের ছবি পাঠাতে পারছি না। রিল বা স্ক্রিনশট পাঠায়েন, মিলিয়ে দাম বলে দিব।';
+          reply = conversation.pending_product_name
+            ? `এই মুহূর্তে আর ছবি নাই। ${conversation.pending_product_name} টাই নেবেন?`
+            : 'এই মুহূর্তে কালেকশনের ছবি পাঠাতে পারছি না। রিল বা স্ক্রিনশট পাঠায়েন, মিলিয়ে দাম বলে দিব।';
         }
         skipAi = true;
+      }
+
+      if (!skipAi && isSizeQuestion(messageText) && (products[0] || conversation.pending_product_name)) {
+        const p = products[0];
+        const sizes = formatSizes(p?.sizes);
+        reply = sizes
+          ? `সাইজ আছে: ${sizes}।`
+          : 'সাইজ ক্যাটালগে লেখা নাই। অর্ডারের সময় কোন সাইজ লাগবে বলে দিয়েন।';
+        skipAi = true;
+      }
+
+      if (!skipAi && conversation.pending_product_name) {
+        const follow = salesFollowup(conversation, messageText);
+        if (follow) {
+          reply = follow.reply;
+          stateUpdate = { ...stateUpdate, ...follow.stateUpdate };
+          skipAi = true;
+        }
       }
 
       if (
@@ -752,9 +859,13 @@ export async function handleMessage(event, baseUrl = '') {
           };
 
           if (alreadyCollecting || /নাম\s*:/i.test(aiResult.reply || '')) {
-            reply = alreadyCollecting
-              ? 'নাম, মোবাইল আর সম্পূর্ণ ঠিকানা একসাথে পাঠায়েন।'
-              : aiResult.reply;
+            const follow = salesFollowup(conversation, messageText);
+            reply = follow
+              ? follow.reply
+              : (alreadyCollecting
+                ? 'নাম, মোবাইল আর সম্পূর্ণ ঠিকানা একসাথে পাঠায়েন।'
+                : aiResult.reply);
+            if (follow) stateUpdate = { ...stateUpdate, ...follow.stateUpdate };
           } else {
             reply = `${aiResult.reply}\n\n${orderFormReply()}`;
           }
