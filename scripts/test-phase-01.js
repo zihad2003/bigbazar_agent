@@ -12,7 +12,7 @@ import {
   getProductImageUrls,
   isGenericProductFollowup,
 } from '../src/utils/searchNormalize.js';
-import { isGreetingOnly, greetingReply } from '../src/utils/nlp.js';
+import { isGreetingOnly, greetingReply, isPhotoRequest } from '../src/utils/nlp.js';
 import { extractMessengerMedia } from '../src/services/messenger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -47,6 +47,8 @@ assert(admin.includes('getAllProducts as getTiDBProducts'), 'sync-catalog uses T
 assert(webhook.includes('Promise.allSettled'), 'webhook fans out in parallel');
 assert(webhook.includes('MAX_ATTEMPTS'), 'webhook retries after ACK');
 assert(handler.includes('rememberMid'), 'mid idempotency');
+assert(handler.includes('claimMessageId'), 'D1 claims mid so two servers cannot double-reply');
+assert(handler.includes('Skipping burst duplicate'), 'same text within 12s is dropped');
 assert(handler.includes("sendTypingIndicator(senderId, false)"), 'typing_off on handoff/errors');
 assert(messenger.includes('Skipping empty send'), 'empty Messenger send skipped');
 assert(cache.includes('getAllProducts as getTiDBProducts'), 'catalog cache reads TiDB');
@@ -118,7 +120,10 @@ const share = extractMessengerMedia([{ type: 'fallback', payload: { url: 'https:
 assert(share.isReelShare && !share.visualUrl, 'facebook reel share without clip asks for screenshot');
 assert(handler.includes('extractMessengerMedia'), 'handler reads video/share attachments');
 assert(handler.includes('fetchConversationHistory'), 'handler loads prior inbox messages');
-assert(prompts.includes('৯০% কাস্টমার রিল'), 'prompt: price first, order form later');
+assert(handler.includes('isPhotoRequest'), 'handler sends catalog photos instead of handoff');
+assert(isPhotoRequest('dress er pic dite'), 'dress pic request detected');
+assert(!isPhotoRequest('kmn acen'), 'small talk is not a photo request');
+assert(!prompts.includes('কালেকশনের ছবিগুলো দিচ্ছি'), 'prompt does not handoff when they ask for photos');
 
 console.log('\n== Result ==');
 if (failed) {

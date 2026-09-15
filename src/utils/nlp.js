@@ -97,6 +97,13 @@ export function isProductQuery(text) {
   return hasProductType || hasIntentSignal;
 }
 
+/** Customer wants catalog / dress photos — not a complaint, not a screenshot they sent. */
+export function isPhotoRequest(text) {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  return /(pic|photo|picture|chobi|cobi|ছবি|পিক|পিকচার|ফটো|দেখাও|দেখান|dekhao|dekhon|dekhaw|কালেকশন|collection)/i.test(lower);
+}
+
 // ── Bengali digit conversion ──────────────────────────────────────────────────
 const BANGLA_DIGITS = { '০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9' };
 

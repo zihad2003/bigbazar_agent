@@ -14,14 +14,15 @@
  *  - AI reply field changed from .text to .reply (structured JSON output)
  */
 
-import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId, saveUnansweredQuery, updateOrderPaymentClaim, logAgentEvent } from './d1.js';
+import { getOrCreateConversation, updateConversation, getSettingCached, getOrdersBySenderId, saveUnansweredQuery, updateOrderPaymentClaim, logAgentEvent, claimMessageId } from './d1.js';
 import { retrieveKnowledge, retrieveTraining } from './ragRetrieve.js';
 import { getAIReply } from './ai.js';
 import { searchProducts } from './productSearch.js';
+import { getCachedCatalog } from './catalogCache.js';
 import { saveOrder, findDuplicateOrder } from './orderService.js';
 import { sendMessage, sendImageMessage, sendTypingIndicator, extractMessengerMedia, fetchConversationHistory } from './messenger.js';
 import { notifyModerator } from './notifier.js';
-import { detectHandoffIntent, isGreetingOnly, greetingReply, isProductQuery } from '../utils/nlp.js';
+import { detectHandoffIntent, isGreetingOnly, greetingReply, isProductQuery, isPhotoRequest } from '../utils/nlp.js';
 import { getProductImageUrls } from '../utils/searchNormalize.js';
 import {
   resolvePhone,
@@ -37,7 +38,9 @@ import { buildSystemPrompt } from '../utils/prompts.js';
 
 const userLocks = new Map();
 const processedMids = new Map();
+const processedBursts = new Map();
 const MID_TTL_MS = 10 * 60 * 1000;
+const BURST_TTL_MS = 12 * 1000;
 
 function pruneProcessedMids() {
   if (processedMids.size < 500) return;
@@ -45,12 +48,63 @@ function pruneProcessedMids() {
   for (const [id, ts] of processedMids) {
     if (ts < cutoff) processedMids.delete(id);
   }
+  const burstCutoff = Date.now() - BURST_TTL_MS;
+  for (const [id, ts] of processedBursts) {
+    if (ts < burstCutoff) processedBursts.delete(id);
+  }
 }
 
 function rememberMid(mid) {
   if (!mid) return;
   pruneProcessedMids();
   processedMids.set(mid, Date.now());
+}
+
+function burstKey(senderId, text, visualUrl, audioUrl) {
+  return `${senderId}|${(text || '').toLowerCase()}|${visualUrl || ''}|${audioUrl || ''}`;
+}
+
+function rememberBurst(key) {
+  if (!key) return;
+  pruneProcessedMids();
+  processedBursts.set(key, Date.now());
+}
+
+function isBurstDuplicate(key) {
+  if (!key) return false;
+  const ts = processedBursts.get(key);
+  return !!ts && Date.now() - ts < BURST_TTL_MS;
+}
+
+function recentlyRepliedSame(history, userContent) {
+  if (!userContent) return false;
+  const h = history || [];
+  for (let i = h.length - 1; i >= 1; i--) {
+    if (h[i].role !== 'assistant' || h[i - 1].role !== 'user') continue;
+    if (h[i - 1].content !== userContent) continue;
+    const age = Date.now() - (h[i].ts || 0);
+    return Number.isFinite(age) && age >= 0 && age < BURST_TTL_MS;
+  }
+  return false;
+}
+
+function productsWithPhotos(list) {
+  return (list || []).filter((p) => getProductImageUrls(p)[0]);
+}
+
+async function sendProductPhotos(senderId, list, baseUrl, max = 4) {
+  let sent = 0;
+  for (const p of list.slice(0, max)) {
+    const url = getProductImageUrls(p)[0];
+    if (!url) continue;
+    try {
+      await sendImageMessage(senderId, url, baseUrl);
+      sent += 1;
+    } catch (e) {
+      console.error('Failed to send catalog photo:', e.message);
+    }
+  }
+  return sent;
 }
 
 export async function handleMessage(event, baseUrl = '') {
@@ -61,21 +115,23 @@ export async function handleMessage(event, baseUrl = '') {
   const senderId = event.sender.id;
   const mid = event.message.mid;
 
+  const prevLock = userLocks.get(senderId) || Promise.resolve();
+  let resolveLock;
+  const myLock = new Promise(resolve => { resolveLock = resolve; });
+  userLocks.set(senderId, myLock);
+  await prevLock;
+
   if (mid && processedMids.has(mid)) {
     console.log(`⏭ [Idempotency] Skipping duplicate mid ${mid}`);
+    resolveLock();
+    if (userLocks.get(senderId) === myLock) userLocks.delete(senderId);
     return;
   }
 
-  // ── Concurrency Lock ─────────────────────────────────────────────────────────
-  while (userLocks.has(senderId)) {
-    await userLocks.get(senderId);
-  }
-  let resolveLock;
-  const lockPromise = new Promise(resolve => { resolveLock = resolve; });
-  userLocks.set(senderId, lockPromise);
-
   let failed = false;
   try {
+    rememberMid(mid);
+
     // ── 1. Global kill switch ────────────────────────────────────────────────────
     const autoReplyEnabled = await getSettingCached('AUTO_REPLY_ENABLED', 'true');
     if (autoReplyEnabled === 'false') {
@@ -108,6 +164,22 @@ export async function handleMessage(event, baseUrl = '') {
       console.log(`🎤 [Gemini Audio] Analyzing voice message: ${audioUrl}`);
     }
 
+    const burst = burstKey(senderId, messageText, visualUrl, audioUrl);
+    if (isBurstDuplicate(burst)) {
+      console.log(`⏭ [Idempotency] Skipping burst duplicate for ${senderId}`);
+      return;
+    }
+    rememberBurst(burst);
+
+    if (mid && !(await claimMessageId(mid, senderId))) {
+      console.log(`⏭ [Idempotency] D1 already claimed mid ${mid}`);
+      return;
+    }
+    if (!(await claimMessageId(`burst:${burst}`, senderId, BURST_TTL_MS))) {
+      console.log(`⏭ [Idempotency] D1 burst skip for ${senderId}`);
+      return;
+    }
+
     // ── 3. Load conversation state ───────────────────────────────────────────────
     const conversation = await getOrCreateConversation(senderId);
     if ((conversation.message_history || []).length < 2) {
@@ -128,6 +200,12 @@ export async function handleMessage(event, baseUrl = '') {
           console.log(`📜 [History] Hydrated ${extra.length} prior inbox turns for ${senderId}`);
         }
       }
+    }
+    const userContent = messageText
+      || (imageUrl ? '[ছবি পাঠিয়েছে]' : videoUrl ? '[রিল/ভিডিও পাঠিয়েছে]' : isReelShare ? '[রিল শেয়ার করেছে]' : audioUrl ? '[ভয়েস মেসেজ পাঠিয়েছে]' : '');
+    if (recentlyRepliedSame(conversation.message_history, userContent)) {
+      console.log(`⏭ [Idempotency] Already replied to this turn for ${senderId}`);
+      return;
     }
     const startedAt = Date.now();
     let products = [];
@@ -197,7 +275,7 @@ export async function handleMessage(event, baseUrl = '') {
     if (needsAI) {
       const isPaymentStage = conversation.state === 'ORDER_CONFIRM';
 
-      if (visualUrl || audioUrl || isProductQuery(messageText) || isReelShare) {
+      if (visualUrl || audioUrl || isProductQuery(messageText) || isReelShare || isPhotoRequest(messageText)) {
         try {
           if (isPaymentStage && visualUrl) {
             console.log('💳 [Search] Skipping product visual match — conversation is in payment stage');
@@ -263,6 +341,35 @@ export async function handleMessage(event, baseUrl = '') {
             console.error('Failed to send matched product image:', e.message);
           }
         }
+      }
+
+      if (!skipAi && !visualUrl && isPhotoRequest(messageText)) {
+        let photoProducts = productsWithPhotos(products);
+        if (!photoProducts.length && conversation.pending_product_name) {
+          try {
+            const pendingHit = await searchProducts(conversation.pending_product_name, null, null, null);
+            photoProducts = productsWithPhotos(pendingHit.products);
+          } catch (_) {}
+        }
+        if (!photoProducts.length) {
+          photoProducts = productsWithPhotos(getCachedCatalog());
+        }
+        const sentCount = await sendProductPhotos(senderId, photoProducts, baseUrl, 4);
+        sentProductImage = sentCount > 0;
+        if (sentCount > 0) {
+          const first = photoProducts[0];
+          stateUpdate = {
+            ...stateUpdate,
+            pending_product_name: first.name,
+            pending_product_price: Number(first.price) || null,
+          };
+          reply = sentCount === 1
+            ? `${first.name}, ${first.price} টাকা। আরও দেখতে চাইলে বলেন।`
+            : 'কিছু কালেকশন দিলাম। কোনটা পছন্দ হলে নাম বা নম্বর বলে দিয়েন।';
+        } else {
+          reply = 'এই মুহূর্তে কালেকশনের ছবি পাঠাতে পারছি না। রিল বা স্ক্রিনশট পাঠায়েন, মিলিয়ে দাম বলে দিব।';
+        }
+        skipAi = true;
       }
 
       if (!skipAi) {
@@ -463,14 +570,20 @@ export async function handleMessage(event, baseUrl = '') {
           }
         }
       } else if (aiResult.intent === 'HANDOFF') {
-        await triggerHandoff(senderId, conversation, 'AI could not resolve query', messageText, {
-          screenshotUrl: visualUrl,
-          botDraft: aiResult.reply,
-          screenshotMatch: visual?.kind || null,
-          retrievedIds: (products || []).map(p => p.id).filter(Boolean).join(',') || null,
-          startedAt,
-        });
-        return;
+        if (isPhotoRequest(messageText) && !visualUrl) {
+          reply = aiResult.reply && !/অপেক্ষা/i.test(aiResult.reply)
+            ? aiResult.reply
+            : 'রিল বা স্ক্রিনশট পাঠায়েন, মিলিয়ে দাম বলে দিব।';
+        } else {
+          await triggerHandoff(senderId, conversation, 'AI could not resolve query', messageText, {
+            screenshotUrl: visualUrl,
+            botDraft: aiResult.reply,
+            screenshotMatch: visual?.kind || null,
+            retrievedIds: (products || []).map(p => p.id).filter(Boolean).join(',') || null,
+            startedAt,
+          });
+          return;
+        }
       }
 
       // ── Payment Claim Extraction ─────────────────────────────────────────
@@ -551,8 +664,8 @@ export async function handleMessage(event, baseUrl = '') {
     throw err;
   } finally {
     if (!failed) rememberMid(mid);
-    userLocks.delete(senderId);
-    if (resolveLock) resolveLock();
+    resolveLock();
+    if (userLocks.get(senderId) === myLock) userLocks.delete(senderId);
   }
 }
 

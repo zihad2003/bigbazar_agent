@@ -94,6 +94,13 @@ async function ensureAgentSchema() {
       created_at TEXT DEFAULT (datetime('now'))
     )
   `);
+  await executeQuery(`
+    CREATE TABLE IF NOT EXISTS processed_mids (
+      id TEXT PRIMARY KEY,
+      sender_id TEXT,
+      created_at INTEGER
+    )
+  `);
 }
 
 const DEFAULT_STATE = {
@@ -316,6 +323,39 @@ export async function getOrdersBySenderId(senderId, limit = 5) {
     [senderId, limit]
   );
   return result?.results || [];
+}
+
+/**
+ * Cross-instance webhook dedupe. Returns false if this id was already claimed
+ * (same Messenger mid, or a burst key still inside ttlMs).
+ */
+export async function claimMessageId(id, senderId, ttlMs = 0) {
+  if (!id) return true;
+  const now = Date.now();
+  try {
+    await executeQuery(
+      'INSERT INTO processed_mids (id, sender_id, created_at) VALUES (?, ?, ?)',
+      [id, senderId, now]
+    );
+    return true;
+  } catch (err) {
+    const m = errText(err).toLowerCase();
+    if (!m.includes('unique') && !m.includes('constraint')) {
+      console.warn('claimMessageId:', err.message);
+      return true;
+    }
+    if (!ttlMs) return false;
+    try {
+      const row = await executeQuery('SELECT created_at FROM processed_mids WHERE id = ? LIMIT 1', [id]);
+      const ts = Number(row?.results?.[0]?.created_at || 0);
+      if (ts && now - ts < ttlMs) return false;
+      await executeQuery('UPDATE processed_mids SET created_at = ? WHERE id = ?', [now, id]);
+      return true;
+    } catch (inner) {
+      console.warn('claimMessageId ttl:', inner.message);
+      return false;
+    }
+  }
 }
 
 // ── Training Examples (Human-in-the-Loop) ────────────────────────────────────
